@@ -67,7 +67,7 @@ var skillsListCmd = &cobra.Command{
 
 var skillsCreateCmd = &cobra.Command{
 	Use:   "create <name>",
-	Short: "Create a new skill",
+	Short: "Create a new skill and open in $EDITOR",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -79,8 +79,16 @@ var skillsCreateCmd = &cobra.Command{
 		if err := db.SaveSkill(s); err != nil {
 			return err
 		}
-		fmt.Printf("Created skill %q. Edit with 'agm skills edit %s'.\n", name, name)
-		return nil
+		path := config.SkillsDir() + "/" + name + ".md"
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vim"
+		}
+		c := exec.Command(editor, path)
+		c.Stdin = os.Stdin
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		return c.Run()
 	},
 }
 

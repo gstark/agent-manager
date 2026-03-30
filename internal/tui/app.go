@@ -203,6 +203,8 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.deleteSelected()
 		case "a":
 			return m.toggleProject()
+		case "n":
+			return m.newItem()
 		case "e", "enter":
 			return m.openEditor()
 		}
@@ -271,6 +273,19 @@ func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.editor, cmd = m.editor.Update(msg)
 	return m, cmd
+}
+
+func (m model) newItem() (tea.Model, tea.Cmd) {
+	switch m.activeTab {
+	case tabSkills:
+		m.editor = newEditor(editSkill, m.width, m.height)
+	case tabRules:
+		m.editor = newEditor(editRule, m.width, m.height)
+	case tabPacks:
+		m.editor = newEditor(editPack, m.width, m.height)
+	}
+	m.activeView = viewEditor
+	return m, m.editor.focusActive()
 }
 
 func (m model) openEditor() (tea.Model, tea.Cmd) {
@@ -444,9 +459,9 @@ func (m model) View() string {
 		b.WriteString("\n")
 	}
 
-	help := "tab/shift+tab: switch • e: edit • d: delete • /: filter • q: quit"
+	help := "tab/shift+tab: switch • n: new • e: edit • d: delete • /: filter • q: quit"
 	if m.hasProject {
-		help = "tab/shift+tab: switch • e: edit • a: toggle project • d: delete • /: filter • q: quit"
+		help = "tab/shift+tab: switch • n: new • e: edit • a: toggle project • d: delete • /: filter • q: quit"
 	}
 	b.WriteString(helpStyle.Render(help))
 

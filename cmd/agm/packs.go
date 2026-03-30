@@ -69,7 +69,7 @@ var packsListCmd = &cobra.Command{
 
 var packsCreateCmd = &cobra.Command{
 	Use:   "create <name>",
-	Short: "Create a new pack",
+	Short: "Create a new pack and open in $EDITOR",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -80,8 +80,16 @@ var packsCreateCmd = &cobra.Command{
 		if err := db.SavePack(p); err != nil {
 			return err
 		}
-		fmt.Printf("Created pack %q. Edit with 'agm packs edit %s'.\n", name, name)
-		return nil
+		path := config.PacksDir() + "/" + name + ".toml"
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vim"
+		}
+		c := exec.Command(editor, path)
+		c.Stdin = os.Stdin
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		return c.Run()
 	},
 }
 

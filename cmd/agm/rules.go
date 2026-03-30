@@ -64,7 +64,7 @@ var rulesListCmd = &cobra.Command{
 
 var rulesCreateCmd = &cobra.Command{
 	Use:   "create <name>",
-	Short: "Create a new rule",
+	Short: "Create a new rule and open in $EDITOR",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -75,8 +75,16 @@ var rulesCreateCmd = &cobra.Command{
 		if err := db.SaveRule(r); err != nil {
 			return err
 		}
-		fmt.Printf("Created rule %q. Edit with 'agm rules edit %s'.\n", name, name)
-		return nil
+		path := config.RulesDir() + "/" + name + ".md"
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vim"
+		}
+		c := exec.Command(editor, path)
+		c.Stdin = os.Stdin
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		return c.Run()
 	},
 }
 
