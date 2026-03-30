@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/gstark/agent-manager/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -12,7 +13,10 @@ var version = "dev"
 var rootCmd = &cobra.Command{
 	Use:   "agm",
 	Short: "Agent Manager — manage AI agent configurations",
-	Long:  "A CLI and TUI tool for managing skills, rules, and packs across Claude Code and Codex.",
+	Long: "A CLI and TUI tool for managing skills, rules, and packs across Claude Code and Codex.",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		return config.EnsureDirs()
+	},
 }
 
 var versionCmd = &cobra.Command{
