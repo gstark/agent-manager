@@ -11,21 +11,22 @@ import (
 	"github.com/gstark/agent-manager/internal/db"
 )
 
-// editKind tracks whether we're editing a skill or a rule.
+// editKind tracks whether we're editing a skill, rule, or pack.
 type editKind int
 
 const (
 	editSkill editKind = iota
 	editRule
+	editPack
 )
 
 // field indexes for tab navigation
 const (
 	fieldName = iota
 	fieldDescription
-	fieldExtra // source (skill) or paths (rule)
+	fieldExtra  // source (skill), paths (rule), or skills (pack)
+	fieldExtra2 // rules (pack only)
 	fieldBody
-	fieldCount
 )
 
 type editorModel struct {
@@ -33,13 +34,50 @@ type editorModel struct {
 	original    string // original name for overwrite detection
 	nameInput   textinput.Model
 	descInput   textinput.Model
-	extraInput  textinput.Model // source for skills, comma-separated paths for rules
+	extraInput  textinput.Model // source for skills, paths for rules, skills for packs
+	extra2Input textinput.Model // rules for packs
 	bodyArea    textarea.Model
 	activeField int
 	width       int
 	height      int
 	err         string
 	saved       bool
+}
+
+func (m editorModel) fieldCount() int {
+	if m.kind == editPack {
+		return 4 // name, desc, skills, rules (no body)
+	}
+	return 5 // name, desc, extra, (skip extra2), body
+}
+
+func (m editorModel) nextField(current int) int {
+	next := current + 1
+	if m.kind != editPack && next == fieldExtra2 {
+		next++ // skip extra2 for skills/rules
+	}
+	if m.kind == editPack && next == fieldBody {
+		next = fieldName // wrap around, packs have no body
+	}
+	if next > fieldBody {
+		next = fieldName
+	}
+	return next
+}
+
+func (m editorModel) prevField(current int) int {
+	prev := current - 1
+	if prev < fieldName {
+		if m.kind == editPack {
+			prev = fieldExtra2
+		} else {
+			prev = fieldBody
+		}
+	}
+	if m.kind != editPack && prev == fieldExtra2 {
+		prev-- // skip extra2 for skills/rules
+	}
+	return prev
 }
 
 func newEditorFromSkill(s *db.Skill, width, height int) editorModel {
@@ -62,6 +100,16 @@ func newEditorFromRule(r *db.Rule, width, height int) editorModel {
 	return m
 }
 
+func newEditorFromPack(p *db.Pack, width, height int) editorModel {
+	m := newEditor(editPack, width, height)
+	m.original = p.Name
+	m.nameInput.SetValue(p.Name)
+	m.descInput.SetValue(p.Description)
+	m.extraInput.SetValue(strings.Join(p.Skills, ", "))
+	m.extra2Input.SetValue(strings.Join(p.Rules, ", "))
+	return m
+}
+
 func newEditor(kind editKind, width, height int) editorModel {
 	name := textinput.New()
 	name.Placeholder = "name"
@@ -75,13 +123,21 @@ func newEditor(kind editKind, width, height int) editorModel {
 	desc.Width = (width - 20)
 
 	extra := textinput.New()
-	if kind == editSkill {
+	switch kind {
+	case editSkill:
 		extra.Placeholder = "source (e.g. skills.sh/owner/repo@skill)"
-	} else {
+	case editRule:
 		extra.Placeholder = "paths (comma-separated, e.g. **/*.rb, **/*.go)"
+	case editPack:
+		extra.Placeholder = "skills (comma-separated)"
 	}
-	extra.CharLimit = 200
+	extra.CharLimit = 500
 	extra.Width = (width - 20)
+
+	extra2 := textinput.New()
+	extra2.Placeholder = "rules (comma-separated)"
+	extra2.CharLimit = 500
+	extra2.Width = (width - 20)
 
 	body := textarea.New()
 	body.Placeholder = "Markdown body..."
@@ -94,6 +150,7 @@ func newEditor(kind editKind, width, height int) editorModel {
 		nameInput:   name,
 		descInput:   desc,
 		extraInput:  extra,
+		extra2Input: extra2,
 		bodyArea:    body,
 		activeField: fieldName,
 		width:       width,
@@ -105,6 +162,7 @@ func (m *editorModel) focusActive() tea.Cmd {
 	m.nameInput.Blur()
 	m.descInput.Blur()
 	m.extraInput.Blur()
+	m.extra2Input.Blur()
 	m.bodyArea.Blur()
 
 	switch m.activeField {
@@ -114,6 +172,8 @@ func (m *editorModel) focusActive() tea.Cmd {
 		return m.descInput.Focus()
 	case fieldExtra:
 		return m.extraInput.Focus()
+	case fieldExtra2:
+		return m.extra2Input.Focus()
 	case fieldBody:
 		return m.bodyArea.Focus()
 	}
@@ -128,7 +188,6 @@ func (m editorModel) save() (string, error) {
 
 	switch m.kind {
 	case editSkill:
-		// Delete old if name changed
 		if m.original != "" && m.original != name {
 			db.DeleteSkill(m.original)
 		}
@@ -144,25 +203,42 @@ func (m editorModel) save() (string, error) {
 		if m.original != "" && m.original != name {
 			db.DeleteRule(m.original)
 		}
-		var paths []string
-		raw := strings.TrimSpace(m.extraInput.Value())
-		if raw != "" {
-			for _, p := range strings.Split(raw, ",") {
-				p = strings.TrimSpace(p)
-				if p != "" {
-					paths = append(paths, p)
-				}
-			}
-		}
 		r := &db.Rule{
 			Name:        name,
 			Description: strings.TrimSpace(m.descInput.Value()),
-			Paths:       paths,
+			Paths:       splitCommaList(m.extraInput.Value()),
 			Body:        m.bodyArea.Value(),
 		}
 		return name, db.SaveRule(r)
+
+	case editPack:
+		if m.original != "" && m.original != name {
+			db.DeletePack(m.original)
+		}
+		p := &db.Pack{
+			Name:        name,
+			Description: strings.TrimSpace(m.descInput.Value()),
+			Skills:      splitCommaList(m.extraInput.Value()),
+			Rules:       splitCommaList(m.extra2Input.Value()),
+		}
+		return name, db.SavePack(p)
 	}
 	return "", fmt.Errorf("unknown edit kind")
+}
+
+func splitCommaList(s string) []string {
+	raw := strings.TrimSpace(s)
+	if raw == "" {
+		return nil
+	}
+	var result []string
+	for _, p := range strings.Split(raw, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 func (m editorModel) Update(msg tea.Msg) (editorModel, tea.Cmd) {
@@ -181,31 +257,28 @@ func (m editorModel) Update(msg tea.Msg) (editorModel, tea.Cmd) {
 			return m, nil
 
 		case "esc":
-			// Signal cancel — handled by parent
 			return m, nil
 
 		case "tab":
 			if m.activeField == fieldBody {
-				// In body, tab inserts text — use ctrl+n to move
 				break
 			}
-			m.activeField = (m.activeField + 1) % fieldCount
+			m.activeField = m.nextField(m.activeField)
 			return m, m.focusActive()
 
 		case "shift+tab":
 			if m.activeField == fieldBody {
 				break
 			}
-			m.activeField = (m.activeField + fieldCount - 1) % fieldCount
+			m.activeField = m.prevField(m.activeField)
 			return m, m.focusActive()
 
 		case "ctrl+n":
-			// Always moves to next field, even from body
-			m.activeField = (m.activeField + 1) % fieldCount
+			m.activeField = m.nextField(m.activeField)
 			return m, m.focusActive()
 
 		case "ctrl+p":
-			m.activeField = (m.activeField + fieldCount - 1) % fieldCount
+			m.activeField = m.prevField(m.activeField)
 			return m, m.focusActive()
 		}
 	case tea.WindowSizeMsg:
@@ -214,11 +287,11 @@ func (m editorModel) Update(msg tea.Msg) (editorModel, tea.Cmd) {
 		m.nameInput.Width = (m.width - 20)
 		m.descInput.Width = (m.width - 20)
 		m.extraInput.Width = (m.width - 20)
+		m.extra2Input.Width = (m.width - 20)
 		m.bodyArea.SetWidth(m.width - 6)
 		m.bodyArea.SetHeight(m.height - 16)
 	}
 
-	// Delegate to active field
 	var cmd tea.Cmd
 	switch m.activeField {
 	case fieldName:
@@ -227,6 +300,8 @@ func (m editorModel) Update(msg tea.Msg) (editorModel, tea.Cmd) {
 		m.descInput, cmd = m.descInput.Update(msg)
 	case fieldExtra:
 		m.extraInput, cmd = m.extraInput.Update(msg)
+	case fieldExtra2:
+		m.extra2Input, cmd = m.extra2Input.Update(msg)
 	case fieldBody:
 		m.bodyArea, cmd = m.bodyArea.Update(msg)
 	}
@@ -236,11 +311,17 @@ func (m editorModel) Update(msg tea.Msg) (editorModel, tea.Cmd) {
 func (m editorModel) View() string {
 	var b strings.Builder
 
-	kindLabel := "Skill"
-	extraLabel := "Source"
-	if m.kind == editRule {
+	var kindLabel, extraLabel string
+	switch m.kind {
+	case editSkill:
+		kindLabel = "Skill"
+		extraLabel = "Source"
+	case editRule:
 		kindLabel = "Rule"
 		extraLabel = "Paths"
+	case editPack:
+		kindLabel = "Pack"
+		extraLabel = "Skills"
 	}
 
 	title := fmt.Sprintf("Edit %s", kindLabel)
@@ -276,33 +357,41 @@ func (m editorModel) View() string {
 	renderField("Description", fieldDescription, m.descInput.View())
 	renderField(extraLabel, fieldExtra, m.extraInput.View())
 
-	b.WriteString("\n")
-
-	// Body with indicator
-	indicator := "  "
-	if m.activeField == fieldBody {
-		indicator = activeIndicator.Render("▸ ")
+	if m.kind == editPack {
+		renderField("Rules", fieldExtra2, m.extra2Input.View())
 	}
-	b.WriteString(indicator)
-	b.WriteString(labelStyle.Render("Body"))
-	b.WriteString("\n")
 
-	bodyBorder := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#6C6C6C")).
-		Padding(0, 1)
-	b.WriteString(bodyBorder.Render(m.bodyArea.View()))
-	b.WriteString("\n\n")
+	if m.kind != editPack {
+		b.WriteString("\n")
 
-	// Error
+		indicator := "  "
+		if m.activeField == fieldBody {
+			indicator = activeIndicator.Render("▸ ")
+		}
+		b.WriteString(indicator)
+		b.WriteString(labelStyle.Render("Body"))
+		b.WriteString("\n")
+
+		bodyBorder := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#6C6C6C")).
+			Padding(0, 1)
+		b.WriteString(bodyBorder.Render(m.bodyArea.View()))
+		b.WriteString("\n\n")
+	} else {
+		b.WriteString("\n")
+	}
+
 	if m.err != "" {
 		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF4444"))
 		b.WriteString(errStyle.Render("Error: " + m.err))
 		b.WriteString("\n")
 	}
 
-	// Help
 	help := "tab/shift+tab: fields • ctrl+n/p: fields (from body) • ctrl+s: save • esc: cancel"
+	if m.kind == editPack {
+		help = "tab/shift+tab: fields • ctrl+s: save • esc: cancel"
+	}
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()

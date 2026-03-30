@@ -34,9 +34,15 @@ const (
 // listItem implements list.DefaultItem for use with the default delegate.
 type listItem struct {
 	name, desc string
+	active     bool
 }
 
-func (i listItem) Title() string       { return i.name }
+func (i listItem) Title() string {
+	if i.active {
+		return "● " + i.name
+	}
+	return "  " + i.name
+}
 func (i listItem) Description() string { return i.desc }
 func (i listItem) FilterValue() string { return i.name + " " + i.desc }
 
@@ -52,6 +58,7 @@ type model struct {
 	status     string
 	projectDir string
 	hasProject bool
+	projectCfg *config.ProjectConfig
 }
 
 func newList(title string, items []list.Item) list.Model {
@@ -64,61 +71,92 @@ func newList(title string, items []list.Item) list.Model {
 	return l
 }
 
-func buildSkillItems() []list.Item {
+func buildSkillItems(activeNames []string) []list.Item {
 	skills, err := db.ListSkills()
 	if err != nil {
 		return nil
 	}
-	items := make([]list.Item, len(skills))
-	for i, s := range skills {
+	var active, inactive []list.Item
+	for _, s := range skills {
 		desc := s.Description
 		if s.Source != "" {
 			desc = fmt.Sprintf("[%s] %s", s.Source, desc)
 		}
-		items[i] = listItem{name: s.Name, desc: desc}
+		item := listItem{name: s.Name, desc: desc, active: slices.Contains(activeNames, s.Name)}
+		if item.active {
+			active = append(active, item)
+		} else {
+			inactive = append(inactive, item)
+		}
 	}
-	return items
+	return append(active, inactive...)
 }
 
-func buildRuleItems() []list.Item {
+func buildRuleItems(activeNames []string) []list.Item {
 	rules, err := db.ListRules()
 	if err != nil {
 		return nil
 	}
-	items := make([]list.Item, len(rules))
-	for i, r := range rules {
-		items[i] = listItem{name: r.Name, desc: r.Description}
+	var active, inactive []list.Item
+	for _, r := range rules {
+		item := listItem{name: r.Name, desc: r.Description, active: slices.Contains(activeNames, r.Name)}
+		if item.active {
+			active = append(active, item)
+		} else {
+			inactive = append(inactive, item)
+		}
 	}
-	return items
+	return append(active, inactive...)
 }
 
-func buildPackItems() []list.Item {
+func buildPackItems(activeNames []string) []list.Item {
 	packs, err := db.ListPacks()
 	if err != nil {
 		return nil
 	}
-	items := make([]list.Item, len(packs))
-	for i, p := range packs {
+	var active, inactive []list.Item
+	for _, p := range packs {
 		desc := p.Description
 		if desc == "" {
 			desc = fmt.Sprintf("%d skills, %d rules", len(p.Skills), len(p.Rules))
 		}
-		items[i] = listItem{name: p.Name, desc: desc}
+		item := listItem{name: p.Name, desc: desc, active: slices.Contains(activeNames, p.Name)}
+		if item.active {
+			active = append(active, item)
+		} else {
+			inactive = append(inactive, item)
+		}
 	}
-	return items
+	return append(active, inactive...)
+}
+
+func loadProjectConfig(dir string) *config.ProjectConfig {
+	cfg, err := config.LoadProjectConfig(dir)
+	if err != nil {
+		return &config.ProjectConfig{}
+	}
+	return cfg
 }
 
 func initialModel() model {
 	dir, _ := os.Getwd()
 	_, err := os.Stat(config.ProjectConfigPath(dir))
+	hasProject := err == nil
+	var cfg *config.ProjectConfig
+	if hasProject {
+		cfg = loadProjectConfig(dir)
+	} else {
+		cfg = &config.ProjectConfig{}
+	}
 	return model{
 		activeTab:  tabSkills,
 		activeView: viewList,
-		skillsList: newList("Skills", buildSkillItems()),
-		rulesList:  newList("Rules", buildRuleItems()),
-		packsList:  newList("Packs", buildPackItems()),
+		skillsList: newList("Skills", buildSkillItems(cfg.Skills)),
+		rulesList:  newList("Rules", buildRuleItems(cfg.Rules)),
+		packsList:  newList("Packs", buildPackItems(cfg.Packs)),
 		projectDir: dir,
-		hasProject: err == nil,
+		hasProject: hasProject,
+		projectCfg: cfg,
 	}
 }
 
@@ -164,7 +202,7 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "d":
 			return m.deleteSelected()
 		case "a":
-			return m.addToProject()
+			return m.toggleProject()
 		case "e", "enter":
 			return m.openEditor()
 		}
@@ -198,12 +236,13 @@ func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = viewList
 			if m.editor.saved {
 				m.status = fmt.Sprintf("Saved %s", m.editor.nameInput.Value())
-				// Refresh the list
 				switch m.editor.kind {
 				case editSkill:
-					m.skillsList.SetItems(buildSkillItems())
+					m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
 				case editRule:
-					m.rulesList.SetItems(buildRuleItems())
+					m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
+				case editPack:
+					m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
 				}
 			}
 			return m, nil
@@ -214,9 +253,11 @@ func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = fmt.Sprintf("Saved %s", m.editor.nameInput.Value())
 				switch m.editor.kind {
 				case editSkill:
-					m.skillsList.SetItems(buildSkillItems())
+					m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
 				case editRule:
-					m.rulesList.SetItems(buildRuleItems())
+					m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
+				case editPack:
+					m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
 				}
 				m.activeView = viewList
 			}
@@ -261,8 +302,14 @@ func (m model) openEditor() (tea.Model, tea.Cmd) {
 		return m, m.editor.focusActive()
 
 	case tabPacks:
-		m.status = "Pack editing not yet supported (use 'agm packs edit')"
-		return m, nil
+		p, err := db.LoadPack(item.name)
+		if err != nil {
+			m.status = fmt.Sprintf("Error: %v", err)
+			return m, nil
+		}
+		m.editor = newEditorFromPack(p, m.width, m.height)
+		m.activeView = viewEditor
+		return m, m.editor.focusActive()
 	}
 	return m, nil
 }
@@ -290,16 +337,16 @@ func (m model) deleteSelected() (tea.Model, tea.Cmd) {
 	m.status = fmt.Sprintf("Deleted %s", item.name)
 	switch m.activeTab {
 	case tabSkills:
-		m.skillsList.SetItems(buildSkillItems())
+		m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
 	case tabRules:
-		m.rulesList.SetItems(buildRuleItems())
+		m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
 	case tabPacks:
-		m.packsList.SetItems(buildPackItems())
+		m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
 	}
 	return m, nil
 }
 
-func (m model) addToProject() (tea.Model, tea.Cmd) {
+func (m model) toggleProject() (tea.Model, tea.Cmd) {
 	if !m.hasProject {
 		m.status = "No .agent-manager.toml in current directory (run 'agm init' first)"
 		return m, nil
@@ -317,29 +364,35 @@ func (m model) addToProject() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	var kind string
+	var kind, action string
 	switch m.activeTab {
 	case tabSkills:
 		kind = "skill"
-		if slices.Contains(cfg.Skills, item.name) {
-			m.status = fmt.Sprintf("Skill %q already in project", item.name)
-			return m, nil
+		if i := slices.Index(cfg.Skills, item.name); i >= 0 {
+			cfg.Skills = slices.Delete(cfg.Skills, i, i+1)
+			action = "Removed"
+		} else {
+			cfg.Skills = append(cfg.Skills, item.name)
+			action = "Added"
 		}
-		cfg.Skills = append(cfg.Skills, item.name)
 	case tabRules:
 		kind = "rule"
-		if slices.Contains(cfg.Rules, item.name) {
-			m.status = fmt.Sprintf("Rule %q already in project", item.name)
-			return m, nil
+		if i := slices.Index(cfg.Rules, item.name); i >= 0 {
+			cfg.Rules = slices.Delete(cfg.Rules, i, i+1)
+			action = "Removed"
+		} else {
+			cfg.Rules = append(cfg.Rules, item.name)
+			action = "Added"
 		}
-		cfg.Rules = append(cfg.Rules, item.name)
 	case tabPacks:
 		kind = "pack"
-		if slices.Contains(cfg.Packs, item.name) {
-			m.status = fmt.Sprintf("Pack %q already in project", item.name)
-			return m, nil
+		if i := slices.Index(cfg.Packs, item.name); i >= 0 {
+			cfg.Packs = slices.Delete(cfg.Packs, i, i+1)
+			action = "Removed"
+		} else {
+			cfg.Packs = append(cfg.Packs, item.name)
+			action = "Added"
 		}
-		cfg.Packs = append(cfg.Packs, item.name)
 	}
 
 	if err := config.SaveProjectConfig(m.projectDir, cfg); err != nil {
@@ -347,7 +400,18 @@ func (m model) addToProject() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.status = fmt.Sprintf("Added %s %q to project", kind, item.name)
+	m.projectCfg = cfg
+	m.status = fmt.Sprintf("%s %s %q", action, kind, item.name)
+
+	// Refresh current list to update active markers
+	switch m.activeTab {
+	case tabSkills:
+		m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
+	case tabRules:
+		m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
+	case tabPacks:
+		m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
+	}
 	return m, nil
 }
 
@@ -382,7 +446,7 @@ func (m model) View() string {
 
 	help := "tab/shift+tab: switch • e: edit • d: delete • /: filter • q: quit"
 	if m.hasProject {
-		help = "tab/shift+tab: switch • e: edit • a: add to project • d: delete • /: filter • q: quit"
+		help = "tab/shift+tab: switch • e: edit • a: toggle project • d: delete • /: filter • q: quit"
 	}
 	b.WriteString(helpStyle.Render(help))
 
