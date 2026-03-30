@@ -5,10 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/gstark/agent-manager/internal/config"
 	"github.com/gstark/agent-manager/internal/db"
+	"github.com/gstark/agent-manager/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -29,16 +29,36 @@ var rulesListCmd = &cobra.Command{
 			fmt.Println("No rules found. Create one with 'agm rules create <name>'.")
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tDESCRIPTION\tPATHS")
-		for _, r := range rules {
+
+		jsonFlag, _ := cmd.Flags().GetBool("json")
+		if jsonFlag {
+			type ruleJSON struct {
+				Name        string   `json:"name"`
+				Description string   `json:"description"`
+				Paths       []string `json:"paths"`
+			}
+			items := make([]ruleJSON, len(rules))
+			for i, r := range rules {
+				items[i] = ruleJSON{r.Name, r.Description, r.Paths}
+			}
+			return output.PrintJSON(items)
+		}
+
+		cols := []output.Column{
+			{Name: "NAME", MinPct: 15, MaxPct: 35},
+			{Name: "DESCRIPTION", MinPct: 30, MaxPct: 45},
+			{Name: "PATHS", MinPct: 10, MaxPct: 30},
+		}
+		rows := make([][]string, len(rules))
+		for i, r := range rules {
 			paths := strings.Join(r.Paths, ", ")
 			if paths == "" {
 				paths = "*"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\n", r.Name, r.Description, paths)
+			rows[i] = []string{r.Name, r.Description, paths}
 		}
-		return w.Flush()
+		output.PrintTable(cols, rows)
+		return nil
 	},
 }
 
@@ -97,6 +117,7 @@ var rulesDeleteCmd = &cobra.Command{
 }
 
 func init() {
+	rulesListCmd.Flags().Bool("json", false, "Output as JSON")
 	rulesCmd.AddCommand(rulesListCmd, rulesCreateCmd, rulesEditCmd, rulesDeleteCmd)
 	rootCmd.AddCommand(rulesCmd)
 }

@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"text/tabwriter"
 
 	"github.com/gstark/agent-manager/internal/config"
 	"github.com/gstark/agent-manager/internal/db"
+	"github.com/gstark/agent-manager/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -28,16 +28,40 @@ var skillsListCmd = &cobra.Command{
 			fmt.Println("No skills found. Create one with 'agm skills create <name>'.")
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tDESCRIPTION\tSOURCE")
-		for _, s := range skills {
+
+		jsonFlag, _ := cmd.Flags().GetBool("json")
+		if jsonFlag {
+			type skillJSON struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				Source      string `json:"source"`
+			}
+			items := make([]skillJSON, len(skills))
+			for i, s := range skills {
+				src := s.Source
+				if src == "" {
+					src = "local"
+				}
+				items[i] = skillJSON{s.Name, s.Description, src}
+			}
+			return output.PrintJSON(items)
+		}
+
+		cols := []output.Column{
+			{Name: "NAME", MinPct: 15, MaxPct: 30},
+			{Name: "DESCRIPTION", MinPct: 30, MaxPct: 55},
+			{Name: "SOURCE", MinPct: 10, MaxPct: 30},
+		}
+		rows := make([][]string, len(skills))
+		for i, s := range skills {
 			source := s.Source
 			if source == "" {
 				source = "local"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\n", s.Name, s.Description, source)
+			rows[i] = []string{s.Name, s.Description, source}
 		}
-		return w.Flush()
+		output.PrintTable(cols, rows)
+		return nil
 	},
 }
 
@@ -97,6 +121,7 @@ var skillsDeleteCmd = &cobra.Command{
 }
 
 func init() {
+	skillsListCmd.Flags().Bool("json", false, "Output as JSON")
 	skillsCmd.AddCommand(skillsListCmd, skillsCreateCmd, skillsEditCmd, skillsDeleteCmd)
 	rootCmd.AddCommand(skillsCmd)
 }

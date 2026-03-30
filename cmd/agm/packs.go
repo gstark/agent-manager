@@ -5,10 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/gstark/agent-manager/internal/config"
 	"github.com/gstark/agent-manager/internal/db"
+	"github.com/gstark/agent-manager/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -29,14 +29,41 @@ var packsListCmd = &cobra.Command{
 			fmt.Println("No packs found. Create one with 'agm packs create <name>'.")
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tSKILLS\tRULES")
-		for _, p := range packs {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name,
-				strings.Join(p.Skills, ", "),
-				strings.Join(p.Rules, ", "))
+
+		jsonFlag, _ := cmd.Flags().GetBool("json")
+		if jsonFlag {
+			type packJSON struct {
+				Name        string   `json:"name"`
+				Description string   `json:"description"`
+				Skills      []string `json:"skills"`
+				Rules       []string `json:"rules"`
+			}
+			items := make([]packJSON, len(packs))
+			for i, p := range packs {
+				items[i] = packJSON{p.Name, p.Description, p.Skills, p.Rules}
+			}
+			return output.PrintJSON(items)
 		}
-		return w.Flush()
+
+		cols := []output.Column{
+			{Name: "NAME", MinPct: 10, MaxPct: 25},
+			{Name: "SKILLS", MinPct: 15, MaxPct: 35},
+			{Name: "RULES", MinPct: 20, MaxPct: 50},
+		}
+		rows := make([][]string, len(packs))
+		for i, p := range packs {
+			skills := strings.Join(p.Skills, ", ")
+			if skills == "" {
+				skills = "—"
+			}
+			rules := strings.Join(p.Rules, ", ")
+			if rules == "" {
+				rules = "—"
+			}
+			rows[i] = []string{p.Name, skills, rules}
+		}
+		output.PrintTable(cols, rows)
+		return nil
 	},
 }
 
@@ -95,6 +122,7 @@ var packsDeleteCmd = &cobra.Command{
 }
 
 func init() {
+	packsListCmd.Flags().Bool("json", false, "Output as JSON")
 	packsCmd.AddCommand(packsListCmd, packsCreateCmd, packsEditCmd, packsDeleteCmd)
 	rootCmd.AddCommand(packsCmd)
 }
