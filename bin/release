@@ -1,0 +1,36 @@
+#!/bin/bash
+set -euo pipefail
+
+# Ensure working tree is clean
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Error: working tree is dirty. Commit or stash changes first."
+  exit 1
+fi
+
+# Get latest tag and bump
+latest=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+echo "Current version: $latest"
+
+# Parse semver
+major=$(echo "$latest" | sed 's/v//' | cut -d. -f1)
+minor=$(echo "$latest" | sed 's/v//' | cut -d. -f2)
+patch=$(echo "$latest" | sed 's/v//' | cut -d. -f3)
+
+# Determine bump type
+bump="${1:-patch}"
+case "$bump" in
+  major) major=$((major + 1)); minor=0; patch=0 ;;
+  minor) minor=$((minor + 1)); patch=0 ;;
+  patch) patch=$((patch + 1)) ;;
+  *) echo "Usage: bin/release [major|minor|patch]"; exit 1 ;;
+esac
+
+next="v${major}.${minor}.${patch}"
+echo "Releasing: $next"
+
+git push origin main
+git tag "$next"
+git push origin "$next"
+GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
+
+echo "Released $next"
