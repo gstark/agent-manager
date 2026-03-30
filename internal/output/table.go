@@ -118,6 +118,7 @@ func PrintTable(columns []Column, rows [][]string) {
 	t := table.New().
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(borderStyle).
+		BorderRow(true).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {
 				return headerStyle.Width(finalWidths[col])
