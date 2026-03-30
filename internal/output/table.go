@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
-
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
 	"golang.org/x/term"
@@ -31,21 +29,6 @@ func termWidth() int {
 		return 80
 	}
 	return w
-}
-
-// truncate shortens s to max runes, adding ellipsis if truncated.
-func truncate(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	if max <= 3 {
-		return string(r[:max])
-	}
-	return string(r[:max-1]) + "…"
 }
 
 // Column defines a table column with a name and min width ratio.
@@ -97,18 +80,6 @@ func PrintTable(columns []Column, rows [][]string) {
 		}
 	}
 
-	// Truncate cells to fit
-	truncatedRows := make([][]string, len(rows))
-	for i, row := range rows {
-		tr := make([]string, len(columns))
-		for j := range columns {
-			if j < len(row) {
-				tr[j] = truncate(strings.TrimSpace(row[j]), finalWidths[j])
-			}
-		}
-		truncatedRows[i] = tr
-	}
-
 	// Build header names
 	headers := make([]string, len(columns))
 	for i, col := range columns {
@@ -130,7 +101,7 @@ func PrintTable(columns []Column, rows [][]string) {
 			return cellStyle.Width(finalWidths[col])
 		}).
 		Headers(headers...).
-		Rows(truncatedRows...)
+		Rows(rows...)
 
 	fmt.Println(t)
 }
