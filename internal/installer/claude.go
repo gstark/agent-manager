@@ -41,10 +41,13 @@ func installClaude(projectDir string, r *resolved) error {
 	}
 
 	for _, skill := range r.skills {
-		content := fmt.Sprintf("---\nname: %s\ndescription: %q\n---\n\n%s\n",
+		content := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n%s\n",
 			skill.Name, skill.Description, strings.TrimSpace(skill.Body))
-		path := filepath.Join(skillsDir, skill.Name+".md")
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		dir := filepath.Join(skillsDir, skill.Name)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644); err != nil {
 			return err
 		}
 	}

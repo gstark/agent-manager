@@ -81,7 +81,7 @@ func TestInstall(t *testing.T) {
 	}
 
 	// Claude skills should exist
-	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "tdd.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "tdd", "SKILL.md")); err != nil {
 		t.Error("claude skill not created")
 	}
 
