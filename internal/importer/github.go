@@ -44,16 +44,27 @@ func (r *SkillRef) Source() string {
 }
 
 func Import(ref *SkillRef) (*db.Skill, error) {
-	// Try SKILL.md first, then skill.md
-	body, err := fetchURL(ref.RawURL())
-	if err != nil {
-		// Try lowercase
-		url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/%s/skill.md",
-			ref.Owner, ref.Repo, ref.Skill)
-		body, err = fetchURL(url)
-		if err != nil {
-			return nil, fmt.Errorf("could not fetch skill from %s: %w", ref.Source(), err)
+	// Try multiple path patterns repos use
+	base := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main", ref.Owner, ref.Repo)
+	paths := []string{
+		ref.Skill + "/SKILL.md",          // <skill>/SKILL.md (mattpocock/skills)
+		"skills/" + ref.Skill + "/SKILL.md", // skills/<skill>/SKILL.md (obra/superpowers)
+		ref.Skill + "/skill.md",          // <skill>/skill.md
+		"skills/" + ref.Skill + "/skill.md", // skills/<skill>/skill.md
+		".claude/skills/" + ref.Skill + "/SKILL.md", // .claude/skills/<skill>/SKILL.md
+		"SKILL.md",                        // root SKILL.md (single-skill repos)
+	}
+
+	var body []byte
+	var err error
+	for _, p := range paths {
+		body, err = fetchURL(base + "/" + p)
+		if err == nil {
+			break
 		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch skill from %s: %w", ref.Source(), err)
 	}
 
 	// Parse frontmatter
