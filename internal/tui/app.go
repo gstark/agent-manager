@@ -2,11 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/gstark/agent-manager/internal/config"
 	"github.com/gstark/agent-manager/internal/db"
 )
 
@@ -37,6 +40,8 @@ type model struct {
 	width      int
 	height     int
 	status     string
+	projectDir string // working directory for project config
+	hasProject bool   // whether .agent-manager.toml exists
 }
 
 func newList(title string, items []list.Item) list.Model {
@@ -94,11 +99,15 @@ func buildPackItems() []list.Item {
 }
 
 func initialModel() model {
+	dir, _ := os.Getwd()
+	_, err := os.Stat(config.ProjectConfigPath(dir))
 	return model{
 		activeTab:  tabSkills,
 		skillsList: newList("Skills", buildSkillItems()),
 		rulesList:  newList("Rules", buildRuleItems()),
 		packsList:  newList("Packs", buildPackItems()),
+		projectDir: dir,
+		hasProject: err == nil,
 	}
 }
 
@@ -137,6 +146,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "d":
 			return m.deleteSelected()
+		case "a":
+			return m.addToProject()
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -181,7 +192,6 @@ func (m model) deleteSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.status = fmt.Sprintf("Deleted %s", item.name)
-	// Rebuild the active list
 	switch m.activeTab {
 	case tabSkills:
 		m.skillsList.SetItems(buildSkillItems())
@@ -190,6 +200,58 @@ func (m model) deleteSelected() (tea.Model, tea.Cmd) {
 	case tabPacks:
 		m.packsList.SetItems(buildPackItems())
 	}
+	return m, nil
+}
+
+func (m model) addToProject() (tea.Model, tea.Cmd) {
+	if !m.hasProject {
+		m.status = "No .agent-manager.toml in current directory (run 'agm init' first)"
+		return m, nil
+	}
+
+	sel := m.activeList().SelectedItem()
+	if sel == nil {
+		return m, nil
+	}
+	item := sel.(listItem)
+
+	cfg, err := config.LoadProjectConfig(m.projectDir)
+	if err != nil {
+		m.status = fmt.Sprintf("Error loading config: %v", err)
+		return m, nil
+	}
+
+	var kind string
+	switch m.activeTab {
+	case tabSkills:
+		kind = "skill"
+		if slices.Contains(cfg.Skills, item.name) {
+			m.status = fmt.Sprintf("Skill %q already in project", item.name)
+			return m, nil
+		}
+		cfg.Skills = append(cfg.Skills, item.name)
+	case tabRules:
+		kind = "rule"
+		if slices.Contains(cfg.Rules, item.name) {
+			m.status = fmt.Sprintf("Rule %q already in project", item.name)
+			return m, nil
+		}
+		cfg.Rules = append(cfg.Rules, item.name)
+	case tabPacks:
+		kind = "pack"
+		if slices.Contains(cfg.Packs, item.name) {
+			m.status = fmt.Sprintf("Pack %q already in project", item.name)
+			return m, nil
+		}
+		cfg.Packs = append(cfg.Packs, item.name)
+	}
+
+	if err := config.SaveProjectConfig(m.projectDir, cfg); err != nil {
+		m.status = fmt.Sprintf("Error saving config: %v", err)
+		return m, nil
+	}
+
+	m.status = fmt.Sprintf("Added %s %q to project", kind, item.name)
 	return m, nil
 }
 
@@ -223,7 +285,11 @@ func (m model) View() string {
 	}
 
 	// Help
-	b.WriteString(helpStyle.Render("tab/shift+tab: switch tabs • d: delete • /: filter • q: quit"))
+	help := "tab/shift+tab: switch • d: delete • /: filter • q: quit"
+	if m.hasProject {
+		help = "tab/shift+tab: switch • a: add to project • d: delete • /: filter • q: quit"
+	}
+	b.WriteString(helpStyle.Render(help))
 
 	return b.String()
 }
