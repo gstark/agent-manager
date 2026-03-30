@@ -23,6 +23,14 @@ const (
 
 var tabNames = []string{"Skills", "Rules", "Packs"}
 
+// view tracks which screen we're on.
+type view int
+
+const (
+	viewList view = iota
+	viewEditor
+)
+
 // listItem implements list.DefaultItem for use with the default delegate.
 type listItem struct {
 	name, desc string
@@ -34,14 +42,16 @@ func (i listItem) FilterValue() string { return i.name }
 
 type model struct {
 	activeTab  tab
+	activeView view
 	skillsList list.Model
 	rulesList  list.Model
 	packsList  list.Model
+	editor     editorModel
 	width      int
 	height     int
 	status     string
-	projectDir string // working directory for project config
-	hasProject bool   // whether .agent-manager.toml exists
+	projectDir string
+	hasProject bool
 }
 
 func newList(title string, items []list.Item) list.Model {
@@ -103,6 +113,7 @@ func initialModel() model {
 	_, err := os.Stat(config.ProjectConfigPath(dir))
 	return model{
 		activeTab:  tabSkills,
+		activeView: viewList,
 		skillsList: newList("Skills", buildSkillItems()),
 		rulesList:  newList("Rules", buildRuleItems()),
 		packsList:  newList("Packs", buildPackItems()),
@@ -127,9 +138,15 @@ func (m *model) activeList() *list.Model {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.activeView == viewEditor {
+		return m.updateEditor(msg)
+	}
+	return m.updateList(msg)
+}
+
+func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Don't intercept keys when filtering
 		if m.activeList().FilterState() == list.Filtering {
 			break
 		}
@@ -148,11 +165,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.deleteSelected()
 		case "a":
 			return m.addToProject()
+		case "e", "enter":
+			return m.openEditor()
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		listHeight := m.height - 7 // title + tabs + status + help
+		listHeight := m.height - 7
 		m.skillsList.SetSize(m.width-4, listHeight)
 		m.rulesList.SetSize(m.width-4, listHeight)
 		m.packsList.SetSize(m.width-4, listHeight)
@@ -169,6 +188,83 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.packsList, cmd = m.packsList.Update(msg)
 	}
 	return m, cmd
+}
+
+func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			m.activeView = viewList
+			if m.editor.saved {
+				m.status = fmt.Sprintf("Saved %s", m.editor.nameInput.Value())
+				// Refresh the list
+				switch m.editor.kind {
+				case editSkill:
+					m.skillsList.SetItems(buildSkillItems())
+				case editRule:
+					m.rulesList.SetItems(buildRuleItems())
+				}
+			}
+			return m, nil
+		case "ctrl+s":
+			var cmd tea.Cmd
+			m.editor, cmd = m.editor.Update(msg)
+			if m.editor.saved {
+				m.status = fmt.Sprintf("Saved %s", m.editor.nameInput.Value())
+				// Refresh the list in background
+				switch m.editor.kind {
+				case editSkill:
+					m.skillsList.SetItems(buildSkillItems())
+				case editRule:
+					m.rulesList.SetItems(buildRuleItems())
+				}
+			}
+			return m, cmd
+		}
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+	}
+
+	var cmd tea.Cmd
+	m.editor, cmd = m.editor.Update(msg)
+	return m, cmd
+}
+
+func (m model) openEditor() (tea.Model, tea.Cmd) {
+	sel := m.activeList().SelectedItem()
+	if sel == nil {
+		return m, nil
+	}
+	item := sel.(listItem)
+
+	switch m.activeTab {
+	case tabSkills:
+		s, err := db.LoadSkill(item.name)
+		if err != nil {
+			m.status = fmt.Sprintf("Error: %v", err)
+			return m, nil
+		}
+		m.editor = newEditorFromSkill(s, m.width, m.height)
+		m.activeView = viewEditor
+		return m, m.editor.focusActive()
+
+	case tabRules:
+		r, err := db.LoadRule(item.name)
+		if err != nil {
+			m.status = fmt.Sprintf("Error: %v", err)
+			return m, nil
+		}
+		m.editor = newEditorFromRule(r, m.width, m.height)
+		m.activeView = viewEditor
+		return m, m.editor.focusActive()
+
+	case tabPacks:
+		m.status = "Pack editing not yet supported (use 'agm packs edit')"
+		return m, nil
+	}
+	return m, nil
 }
 
 func (m model) deleteSelected() (tea.Model, tea.Cmd) {
@@ -256,13 +352,15 @@ func (m model) addToProject() (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	if m.activeView == viewEditor {
+		return m.editor.View()
+	}
+
 	var b strings.Builder
 
-	// Title
 	b.WriteString(titleStyle.Render("agent-manager"))
 	b.WriteString("\n")
 
-	// Tab bar
 	var tabs []string
 	for i, name := range tabNames {
 		if tab(i) == m.activeTab {
@@ -274,20 +372,17 @@ func (m model) View() string {
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, tabs...))
 	b.WriteString("\n\n")
 
-	// Active list
 	b.WriteString(m.activeList().View())
 	b.WriteString("\n")
 
-	// Status
 	if m.status != "" {
 		b.WriteString(statusStyle.Render(m.status))
 		b.WriteString("\n")
 	}
 
-	// Help
-	help := "tab/shift+tab: switch • d: delete • /: filter • q: quit"
+	help := "tab/shift+tab: switch • e: edit • d: delete • /: filter • q: quit"
 	if m.hasProject {
-		help = "tab/shift+tab: switch • a: add to project • d: delete • /: filter • q: quit"
+		help = "tab/shift+tab: switch • e: edit • a: add to project • d: delete • /: filter • q: quit"
 	}
 	b.WriteString(helpStyle.Render(help))
 
