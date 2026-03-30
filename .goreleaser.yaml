@@ -1,0 +1,34 @@
+version: 2
+
+builds:
+  - main: ./cmd/agm
+    binary: agm
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+
+brews:
+  - repository:
+      owner: gstark
+      name: homebrew-tap
+    directory: Formula
+    homepage: https://github.com/gstark/agent-manager
+    description: Manage AI agent configurations across Claude Code and Codex
+    install: |
+      bin.install "agm"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
