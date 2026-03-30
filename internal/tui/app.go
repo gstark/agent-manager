@@ -212,13 +212,13 @@ func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editor, cmd = m.editor.Update(msg)
 			if m.editor.saved {
 				m.status = fmt.Sprintf("Saved %s", m.editor.nameInput.Value())
-				// Refresh the list in background
 				switch m.editor.kind {
 				case editSkill:
 					m.skillsList.SetItems(buildSkillItems())
 				case editRule:
 					m.rulesList.SetItems(buildRuleItems())
 				}
+				m.activeView = viewList
 			}
 			return m, cmd
 		}
