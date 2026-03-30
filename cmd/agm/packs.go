@@ -122,7 +122,7 @@ var packsDeleteCmd = &cobra.Command{
 }
 
 func init() {
-	packsListCmd.Flags().Bool("json", false, "Output as JSON")
+	packsListCmd.Flags().Bool("json", false, "Output as JSON (recommended for scripts and automation)")
 	packsCmd.AddCommand(packsListCmd, packsCreateCmd, packsEditCmd, packsDeleteCmd)
 	rootCmd.AddCommand(packsCmd)
 }

@@ -117,7 +117,7 @@ var rulesDeleteCmd = &cobra.Command{
 }
 
 func init() {
-	rulesListCmd.Flags().Bool("json", false, "Output as JSON")
+	rulesListCmd.Flags().Bool("json", false, "Output as JSON (recommended for scripts and automation)")
 	rulesCmd.AddCommand(rulesListCmd, rulesCreateCmd, rulesEditCmd, rulesDeleteCmd)
 	rootCmd.AddCommand(rulesCmd)
 }

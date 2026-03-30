@@ -121,7 +121,7 @@ var skillsDeleteCmd = &cobra.Command{
 }
 
 func init() {
-	skillsListCmd.Flags().Bool("json", false, "Output as JSON")
+	skillsListCmd.Flags().Bool("json", false, "Output as JSON (recommended for scripts and automation)")
 	skillsCmd.AddCommand(skillsListCmd, skillsCreateCmd, skillsEditCmd, skillsDeleteCmd)
 	rootCmd.AddCommand(skillsCmd)
 }

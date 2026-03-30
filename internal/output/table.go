@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
 	"golang.org/x/term"
@@ -23,6 +25,11 @@ var (
 	borderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C6C6C"))
 )
 
+// IsTerminal reports whether stdout is connected to a terminal.
+func IsTerminal() bool {
+	return term.IsTerminal(int(os.Stdout.Fd()))
+}
+
 func termWidth() int {
 	w, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || w <= 0 {
@@ -39,8 +46,15 @@ type Column struct {
 }
 
 // PrintTable renders a styled table that fits the terminal.
+// When stdout is not a TTY (e.g. piped), it prints tab-separated values
+// with no truncation or styling.
 func PrintTable(columns []Column, rows [][]string) {
 	if len(rows) == 0 {
+		return
+	}
+
+	if !IsTerminal() {
+		printPlain(columns, rows)
 		return
 	}
 
@@ -104,6 +118,18 @@ func PrintTable(columns []Column, rows [][]string) {
 		Rows(rows...)
 
 	fmt.Println(t)
+}
+
+// printPlain writes tab-separated output with no truncation, suitable for piped usage.
+func printPlain(columns []Column, rows [][]string) {
+	headers := make([]string, len(columns))
+	for i, col := range columns {
+		headers[i] = col.Name
+	}
+	fmt.Println(strings.Join(headers, "\t"))
+	for _, row := range rows {
+		fmt.Println(strings.Join(row, "\t"))
+	}
 }
 
 // PrintJSON marshals data as indented JSON to stdout.
