@@ -114,6 +114,25 @@ var skillsEditCmd = &cobra.Command{
 	},
 }
 
+var skillsCatCmd = &cobra.Command{
+	Use:   "cat <name>",
+	Short: "Print the contents of a skill",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+		path := config.SkillsDir() + "/" + name + ".md"
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("skill %q not found", name)
+			}
+			return err
+		}
+		fmt.Print(string(data))
+		return nil
+	},
+}
+
 var skillsDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a skill",
@@ -130,6 +149,6 @@ var skillsDeleteCmd = &cobra.Command{
 
 func init() {
 	skillsListCmd.Flags().Bool("json", false, "Output as JSON (recommended for scripts and automation)")
-	skillsCmd.AddCommand(skillsListCmd, skillsCreateCmd, skillsEditCmd, skillsDeleteCmd)
+	skillsCmd.AddCommand(skillsListCmd, skillsCreateCmd, skillsEditCmd, skillsCatCmd, skillsDeleteCmd)
 	rootCmd.AddCommand(skillsCmd)
 }
