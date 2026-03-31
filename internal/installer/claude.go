@@ -9,17 +9,35 @@ import (
 	"github.com/gstark/agent-manager/internal/db"
 )
 
-func installClaude(projectDir string, r *resolved) error {
+// writeFileIfChanged writes content to path and returns true if the file was
+// created or its content changed.
+func writeFileIfChanged(path string, content []byte) (changed bool, err error) {
+	existing, err := os.ReadFile(path)
+	if err == nil && string(existing) == string(content) {
+		return false, nil
+	}
+	return true, os.WriteFile(path, content, 0644)
+}
+
+func installClaude(projectDir string, r *resolved) ([]ItemResult, error) {
+	var results []ItemResult
+
 	// Write .claude/rules/*.md
 	rulesDir := filepath.Join(projectDir, ".claude", "rules")
 	if err := os.MkdirAll(rulesDir, 0755); err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, rule := range r.rules {
-		if err := writeClaudeRule(rulesDir, rule); err != nil {
-			return err
+		changed, err := writeClaudeRule(rulesDir, rule)
+		if err != nil {
+			return nil, err
 		}
+		status := StatusUpToDate
+		if changed {
+			status = StatusInstalled
+		}
+		results = append(results, ItemResult{Kind: "rule", Name: rule.Name, Status: status})
 	}
 
 	for _, lr := range r.localRules {
@@ -29,15 +47,21 @@ func installClaude(projectDir string, r *resolved) error {
 			Paths:       lr.Paths,
 			Body:        lr.Content,
 		}
-		if err := writeClaudeRule(rulesDir, rule); err != nil {
-			return err
+		changed, err := writeClaudeRule(rulesDir, rule)
+		if err != nil {
+			return nil, err
 		}
+		status := StatusUpToDate
+		if changed {
+			status = StatusInstalled
+		}
+		results = append(results, ItemResult{Kind: "rule", Name: rule.Name, Status: status})
 	}
 
 	// Write .claude/skills/*.md
 	skillsDir := filepath.Join(projectDir, ".claude", "skills")
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, skill := range r.skills {
@@ -45,24 +69,30 @@ func installClaude(projectDir string, r *resolved) error {
 			skill.Name, skill.Description, strings.TrimSpace(skill.Body))
 		dir := filepath.Join(skillsDir, skill.Name)
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return err
+			return nil, err
 		}
-		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644); err != nil {
-			return err
+		changed, err := writeFileIfChanged(filepath.Join(dir, "SKILL.md"), []byte(content))
+		if err != nil {
+			return nil, err
 		}
+		status := StatusUpToDate
+		if changed {
+			status = StatusInstalled
+		}
+		results = append(results, ItemResult{Kind: "skill", Name: skill.Name, Status: status})
 	}
 
 	// Create CLAUDE.md symlink
 	claudePath := filepath.Join(projectDir, "CLAUDE.md")
 	os.Remove(claudePath) // remove existing file/symlink
 	if err := os.Symlink("AGENTS.md", claudePath); err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return results, nil
 }
 
-func writeClaudeRule(dir string, rule *db.Rule) error {
+func writeClaudeRule(dir string, rule *db.Rule) (changed bool, err error) {
 	var b strings.Builder
 	b.WriteString("---\n")
 	if len(rule.Paths) > 0 {
@@ -78,5 +108,5 @@ func writeClaudeRule(dir string, rule *db.Rule) error {
 	b.WriteString(strings.TrimSpace(rule.Body))
 	b.WriteString("\n")
 
-	return os.WriteFile(filepath.Join(dir, rule.Name+".md"), []byte(b.String()), 0644)
+	return writeFileIfChanged(filepath.Join(dir, rule.Name+".md"), []byte(b.String()))
 }

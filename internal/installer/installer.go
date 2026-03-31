@@ -7,6 +7,21 @@ import (
 	"github.com/gstark/agent-manager/internal/db"
 )
 
+// ItemStatus indicates whether an item was installed fresh or already current.
+type ItemStatus int
+
+const (
+	StatusInstalled ItemStatus = iota
+	StatusUpToDate
+)
+
+// ItemResult describes the outcome of installing a single item.
+type ItemResult struct {
+	Kind   string // "skill" or "rule"
+	Name   string
+	Status ItemStatus
+}
+
 type resolved struct {
 	skills     []*db.Skill
 	rules      []*db.Rule
@@ -79,17 +94,18 @@ func resolve(cfg *config.ProjectConfig) (*resolved, error) {
 	return r, nil
 }
 
-func Install(projectDir string, cfg *config.ProjectConfig) error {
+func Install(projectDir string, cfg *config.ProjectConfig) ([]ItemResult, error) {
 	r, err := resolve(cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if err := installClaude(projectDir, r); err != nil {
-		return fmt.Errorf("claude: %w", err)
+	results, err := installClaude(projectDir, r)
+	if err != nil {
+		return nil, fmt.Errorf("claude: %w", err)
 	}
 	if err := installCodex(projectDir, r); err != nil {
-		return fmt.Errorf("codex: %w", err)
+		return nil, fmt.Errorf("codex: %w", err)
 	}
-	return nil
+	return results, nil
 }

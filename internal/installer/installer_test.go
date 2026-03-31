@@ -58,7 +58,7 @@ func TestInstall(t *testing.T) {
 		Packs:  []string{"ruby"},
 	}
 
-	if err := Install(projectDir, cfg); err != nil {
+	if _, err := Install(projectDir, cfg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -105,7 +105,7 @@ func TestInstallWithLocalRules(t *testing.T) {
 		},
 	}
 
-	if err := Install(projectDir, cfg); err != nil {
+	if _, err := Install(projectDir, cfg); err != nil {
 		t.Fatal(err)
 	}
 

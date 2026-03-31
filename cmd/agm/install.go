@@ -19,11 +19,20 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("no %s found (run 'agm init' first): %w", config.ProjectConfigFile, err)
 		}
 
-		if err := installer.Install(dir, cfg); err != nil {
+		results, err := installer.Install(dir, cfg)
+		if err != nil {
 			return err
 		}
 
-		fmt.Println("Installed successfully.")
+		for _, r := range results {
+			icon := "✓"
+			if r.Status == installer.StatusUpToDate {
+				icon = "·"
+			}
+			fmt.Printf("  %s %s: %s\n", icon, r.Kind, r.Name)
+		}
+
+		fmt.Println("\nAll items installed.")
 		return nil
 	},
 }
