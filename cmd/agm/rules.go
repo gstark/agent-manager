@@ -76,10 +76,7 @@ var rulesCreateCmd = &cobra.Command{
 			return err
 		}
 		path := config.RulesDir() + "/" + name + ".md"
-		editor := os.Getenv("EDITOR")
-		if editor == "" {
-			editor = "vim"
-		}
+		editor := getEditor()
 		c := exec.Command(editor, path)
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout
@@ -98,10 +95,7 @@ var rulesEditCmd = &cobra.Command{
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			return fmt.Errorf("rule %q not found", name)
 		}
-		editor := os.Getenv("EDITOR")
-		if editor == "" {
-			editor = "vim"
-		}
+		editor := getEditor()
 		c := exec.Command(editor, path)
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout

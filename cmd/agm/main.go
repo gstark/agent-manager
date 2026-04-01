@@ -31,6 +31,17 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 }
 
+// getEditor returns the user's preferred editor: $VISUAL, $EDITOR, or "vim".
+func getEditor() string {
+	if e := os.Getenv("VISUAL"); e != "" {
+		return e
+	}
+	if e := os.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	return "vim"
+}
+
 func main() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

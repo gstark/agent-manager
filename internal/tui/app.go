@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 
@@ -22,6 +23,25 @@ const (
 )
 
 var tabNames = []string{"Skills", "Rules", "Packs"}
+
+// externalEditorFinishedMsg is sent when an external $EDITOR/$VISUAL process exits.
+type externalEditorFinishedMsg struct {
+	kind editKind
+	name string // item name to reload from disk
+	err  error
+}
+
+// externalEditor returns the path to an external editor from $EDITOR or $VISUAL,
+// or empty string if neither is set.
+func externalEditor() string {
+	if e := os.Getenv("VISUAL"); e != "" {
+		return e
+	}
+	if e := os.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	return ""
+}
 
 // view tracks which screen we're on.
 type view int
@@ -176,10 +196,35 @@ func (m *model) activeList() *list.Model {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if msg, ok := msg.(externalEditorFinishedMsg); ok {
+		return m.handleExternalEditorFinished(msg)
+	}
 	if m.activeView == viewEditor {
 		return m.updateEditor(msg)
 	}
 	return m.updateList(msg)
+}
+
+func (m model) handleExternalEditorFinished(msg externalEditorFinishedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.status = fmt.Sprintf("Editor error: %v", msg.err)
+		return m, nil
+	}
+
+	// Reload from disk — the user may have changed the name in frontmatter/TOML,
+	// but we can only reload by the original filename. The file on disk is the
+	// source of truth after external editing.
+	switch msg.kind {
+	case editSkill:
+		m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
+	case editRule:
+		m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
+	case editPack:
+		m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
+	}
+	m.status = fmt.Sprintf("Saved %s", msg.name)
+	m.activeView = viewList
+	return m, nil
 }
 
 func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -276,6 +321,44 @@ func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) newItem() (tea.Model, tea.Cmd) {
+	if editor := externalEditor(); editor != "" {
+		var kind editKind
+		var name, path string
+		switch m.activeTab {
+		case tabSkills:
+			kind = editSkill
+			name = "new-skill"
+			s := &db.Skill{Name: name, Source: "local", Body: "# " + name + "\n\nDescribe this skill here."}
+			if err := db.SaveSkill(s); err != nil {
+				m.status = fmt.Sprintf("Error: %v", err)
+				return m, nil
+			}
+			path = config.SkillsDir() + "/" + name + ".md"
+		case tabRules:
+			kind = editRule
+			name = "new-rule"
+			r := &db.Rule{Name: name, Body: "Describe this rule here."}
+			if err := db.SaveRule(r); err != nil {
+				m.status = fmt.Sprintf("Error: %v", err)
+				return m, nil
+			}
+			path = config.RulesDir() + "/" + name + ".md"
+		case tabPacks:
+			kind = editPack
+			name = "new-pack"
+			p := &db.Pack{Name: name, Description: name + " pack"}
+			if err := db.SavePack(p); err != nil {
+				m.status = fmt.Sprintf("Error: %v", err)
+				return m, nil
+			}
+			path = config.PacksDir() + "/" + name + ".toml"
+		}
+		c := exec.Command(editor, path)
+		return m, tea.ExecProcess(c, func(err error) tea.Msg {
+			return externalEditorFinishedMsg{kind: kind, name: name, err: err}
+		})
+	}
+
 	switch m.activeTab {
 	case tabSkills:
 		m.editor = newEditor(editSkill, m.width, m.height)
@@ -294,6 +377,26 @@ func (m model) openEditor() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	item := sel.(listItem)
+
+	if editor := externalEditor(); editor != "" {
+		var kind editKind
+		var path string
+		switch m.activeTab {
+		case tabSkills:
+			kind = editSkill
+			path = config.SkillsDir() + "/" + item.name + ".md"
+		case tabRules:
+			kind = editRule
+			path = config.RulesDir() + "/" + item.name + ".md"
+		case tabPacks:
+			kind = editPack
+			path = config.PacksDir() + "/" + item.name + ".toml"
+		}
+		c := exec.Command(editor, path)
+		return m, tea.ExecProcess(c, func(err error) tea.Msg {
+			return externalEditorFinishedMsg{kind: kind, name: item.name, err: err}
+		})
+	}
 
 	switch m.activeTab {
 	case tabSkills:
