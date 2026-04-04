@@ -83,6 +83,14 @@ type model struct {
 
 func newList(title string, items []list.Item) list.Model {
 	delegate := list.NewDefaultDelegate()
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
+		Foreground(lipgloss.NoColor{}).
+		Background(lipgloss.NoColor{}).
+		Reverse(true)
+	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
+		Foreground(lipgloss.NoColor{}).
+		Background(lipgloss.NoColor{}).
+		Reverse(true)
 	l := list.New(items, delegate, 80, 20)
 	l.Title = title
 	l.SetShowHelp(false)
