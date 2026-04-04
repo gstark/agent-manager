@@ -25,11 +25,7 @@ var installCmd = &cobra.Command{
 		}
 
 		for _, r := range results {
-			icon := "✓"
-			if r.Status == installer.StatusUpToDate {
-				icon = "·"
-			}
-			fmt.Printf("  %s %s: %s\n", icon, r.Kind, r.Name)
+			fmt.Printf("  ✅ %s: %s\n", r.Kind, r.Name)
 		}
 
 		fmt.Println("\nAll items installed.")

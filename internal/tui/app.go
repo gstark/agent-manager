@@ -59,7 +59,7 @@ type listItem struct {
 
 func (i listItem) Title() string {
 	if i.active {
-		return "● " + i.name
+		return "✅ " + i.name
 	}
 	return "  " + i.name
 }
