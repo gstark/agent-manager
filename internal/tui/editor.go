@@ -334,7 +334,7 @@ func (m editorModel) View() string {
 	labelStyle := lipgloss.NewStyle().
 		Width(12).
 		Align(lipgloss.Right).
-		Foreground(lipgloss.Color("#7D56F4")).
+		Reverse(true).
 		Bold(true).
 		PaddingRight(1)
 

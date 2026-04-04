@@ -14,7 +14,7 @@ import (
 var (
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#7D56F4")).
+			Reverse(true).
 			Padding(0, 1)
 
 	cellStyle = lipgloss.NewStyle().

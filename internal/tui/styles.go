@@ -3,7 +3,6 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	primary   = lipgloss.Color("#7D56F4")
 	secondary = lipgloss.Color("#6C6C6C")
 	accent    = lipgloss.Color("#04B575")
 	subtle    = lipgloss.Color("#383838")
@@ -12,7 +11,7 @@ var (
 
 	activeTab = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(primary).
+			Reverse(true).
 			Padding(0, 2)
 
 	inactiveTab = lipgloss.NewStyle().
@@ -21,8 +20,7 @@ var (
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(text).
-			Background(primary).
+			Reverse(true).
 			Padding(0, 2).
 			MarginBottom(1)
 
