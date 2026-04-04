@@ -63,7 +63,12 @@ func (i listItem) Title() string {
 	}
 	return "  " + i.name
 }
-func (i listItem) Description() string { return i.desc }
+func (i listItem) Description() string {
+	if i.active {
+		return "    " + i.desc
+	}
+	return "  " + i.desc
+}
 func (i listItem) FilterValue() string { return i.name + " " + i.desc }
 
 type model struct {
