@@ -2,6 +2,7 @@ package importer
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -43,23 +44,44 @@ func (r *SkillRef) Source() string {
 	return fmt.Sprintf("skills.sh/%s/%s@%s", r.Owner, r.Repo, r.Skill)
 }
 
+// contentsEntry represents a file in the GitHub Contents API response.
+type contentsEntry struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"` // "file" or "dir"
+	DownloadURL string `json:"download_url"`
+}
+
+// httpClient is the HTTP client used for all requests. Tests can replace it.
+var httpClient = http.DefaultClient
+
+// contentsAPIBase can be overridden in tests.
+var contentsAPIBase = "https://api.github.com"
+
+// rawContentBase can be overridden in tests.
+var rawContentBase = "https://raw.githubusercontent.com"
+
 func Import(ref *SkillRef) (*db.Skill, error) {
 	// Try multiple path patterns repos use
-	base := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main", ref.Owner, ref.Repo)
-	paths := []string{
-		ref.Skill + "/SKILL.md",          // <skill>/SKILL.md (mattpocock/skills)
-		"skills/" + ref.Skill + "/SKILL.md", // skills/<skill>/SKILL.md (obra/superpowers)
-		ref.Skill + "/skill.md",          // <skill>/skill.md
-		"skills/" + ref.Skill + "/skill.md", // skills/<skill>/skill.md
-		".claude/skills/" + ref.Skill + "/SKILL.md", // .claude/skills/<skill>/SKILL.md
-		"SKILL.md",                        // root SKILL.md (single-skill repos)
+	base := fmt.Sprintf("%s/%s/%s/main", rawContentBase, ref.Owner, ref.Repo)
+	patterns := []struct {
+		skillMDPath string
+		dirPath     string // directory containing the skill files
+	}{
+		{ref.Skill + "/SKILL.md", ref.Skill},
+		{"skills/" + ref.Skill + "/SKILL.md", "skills/" + ref.Skill},
+		{ref.Skill + "/skill.md", ref.Skill},
+		{"skills/" + ref.Skill + "/skill.md", "skills/" + ref.Skill},
+		{".claude/skills/" + ref.Skill + "/SKILL.md", ".claude/skills/" + ref.Skill},
+		{"SKILL.md", ""},
 	}
 
 	var body []byte
+	var matchedDir string
 	var err error
-	for _, p := range paths {
-		body, err = fetchURL(base + "/" + p)
+	for _, p := range patterns {
+		body, err = fetchURL(base + "/" + p.skillMDPath)
 		if err == nil {
+			matchedDir = p.dirPath
 			break
 		}
 	}
@@ -69,8 +91,8 @@ func Import(ref *SkillRef) (*db.Skill, error) {
 
 	// Parse frontmatter
 	s := &db.Skill{}
-	rest, err := frontmatter.Parse(bytes.NewReader(body), s)
-	if err != nil {
+	rest, parseErr := frontmatter.Parse(bytes.NewReader(body), s)
+	if parseErr != nil {
 		// No frontmatter — use raw content
 		s.Body = strings.TrimSpace(string(body))
 	} else {
@@ -82,11 +104,65 @@ func Import(ref *SkillRef) (*db.Skill, error) {
 	}
 	s.Source = ref.Source()
 
+	// Fetch extra files from the skill directory
+	if matchedDir != "" {
+		files, err := fetchExtraFiles(ref, matchedDir)
+		if err == nil && len(files) > 0 {
+			s.Files = files
+		}
+	}
+
 	return s, nil
 }
 
+// fetchExtraFiles lists the skill directory via the GitHub Contents API and
+// fetches all non-SKILL.md files.
+func fetchExtraFiles(ref *SkillRef, dirPath string) (map[string][]byte, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=main",
+		contentsAPIBase, ref.Owner, ref.Repo, dirPath)
+
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+
+	var entries []contentsEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		return nil, err
+	}
+
+	files := make(map[string][]byte)
+	for _, e := range entries {
+		if e.Type != "file" {
+			continue
+		}
+		lower := strings.ToLower(e.Name)
+		if lower == "skill.md" {
+			continue
+		}
+		if e.DownloadURL == "" {
+			continue
+		}
+		data, err := fetchURL(e.DownloadURL)
+		if err != nil {
+			continue // skip files we can't fetch
+		}
+		files[e.Name] = data
+	}
+
+	if len(files) == 0 {
+		return nil, nil
+	}
+	return files, nil
+}
+
 func fetchURL(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}

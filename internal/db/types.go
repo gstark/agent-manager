@@ -1,10 +1,11 @@
 package db
 
 type Skill struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Source      string   `yaml:"source"`
-	Body        string   `yaml:"-"`
+	Name        string            `yaml:"name"`
+	Description string            `yaml:"description"`
+	Source      string            `yaml:"source"`
+	Files       map[string][]byte `yaml:"-"`
+	Body        string            `yaml:"-"`
 }
 
 type Rule struct {

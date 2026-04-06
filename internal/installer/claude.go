@@ -75,6 +75,15 @@ func installClaude(projectDir string, r *resolved) ([]ItemResult, error) {
 		if err != nil {
 			return nil, err
 		}
+		for name, data := range skill.Files {
+			c, writeErr := writeFileIfChanged(filepath.Join(dir, name), data)
+			if writeErr != nil {
+				return nil, writeErr
+			}
+			if c {
+				changed = true
+			}
+		}
 		status := StatusUpToDate
 		if changed {
 			status = StatusInstalled

@@ -16,12 +16,15 @@ func setupTestEnv(t *testing.T) (configDir, projectDir string) {
 	t.Setenv("AGM_CONFIG_DIR", configDir)
 	config.EnsureDirs()
 
-	// Create a skill
+	// Create a skill with extra files
 	db.SaveSkill(&db.Skill{
 		Name:        "tdd",
 		Description: "TDD workflow",
 		Source:      "local",
 		Body:        "# TDD\nWrite tests first.",
+		Files: map[string][]byte{
+			"helper.sh": []byte("#!/bin/bash\necho test"),
+		},
 	})
 
 	// Create a rule
@@ -85,9 +88,19 @@ func TestInstall(t *testing.T) {
 		t.Error("claude skill not created")
 	}
 
+	// Claude extra files should exist
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "tdd", "helper.sh")); err != nil {
+		t.Error("claude skill extra file not created")
+	}
+
 	// Codex skills should exist
 	if _, err := os.Stat(filepath.Join(projectDir, ".agents", "skills", "tdd", "SKILL.md")); err != nil {
 		t.Error("codex skill not created")
+	}
+
+	// Codex extra files should exist
+	if _, err := os.Stat(filepath.Join(projectDir, ".agents", "skills", "tdd", "helper.sh")); err != nil {
+		t.Error("codex skill extra file not created")
 	}
 }
 

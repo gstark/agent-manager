@@ -52,6 +52,11 @@ func installCodex(projectDir string, r *resolved) error {
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			return err
 		}
+		for name, data := range skill.Files {
+			if err := os.WriteFile(filepath.Join(skillDir, name), data, 0644); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
