@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gstark/agent-manager/internal/config"
 	"github.com/gstark/agent-manager/internal/db"
 )
@@ -57,6 +59,8 @@ type listItem struct {
 	active     bool
 }
 
+var selectedNameStyle = lipgloss.NewStyle().Reverse(true)
+
 func (i listItem) Title() string {
 	if i.active {
 		return "✅ " + i.name
@@ -70,6 +74,46 @@ func (i listItem) Description() string {
 	return "  " + i.desc
 }
 func (i listItem) FilterValue() string { return i.name + " " + i.desc }
+
+// itemDelegate wraps DefaultDelegate to highlight only the name on selection.
+type itemDelegate struct {
+	list.DefaultDelegate
+}
+
+func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	li, ok := item.(listItem)
+	if !ok {
+		return
+	}
+
+	isSelected := index == m.Index() && m.FilterState() != list.Filtering
+
+	title := li.Title()
+	desc := li.Description()
+
+	if m.Width() > 0 {
+		s := &d.Styles
+		textwidth := m.Width() - s.NormalTitle.GetPaddingLeft() - s.NormalTitle.GetPaddingRight()
+		title = ansi.Truncate(title, textwidth, "…")
+		desc = ansi.Truncate(desc, textwidth, "…")
+	}
+
+	if isSelected {
+		// Apply reverse only to the name portion
+		prefix := "  "
+		if li.active {
+			prefix = "✅ "
+		}
+		name := selectedNameStyle.Render(li.name)
+		title = d.Styles.SelectedTitle.Render(prefix + name)
+		desc = d.Styles.SelectedDesc.Render(li.Description())
+	} else {
+		title = d.Styles.NormalTitle.Render(title)
+		desc = d.Styles.NormalDesc.Render(desc)
+	}
+
+	fmt.Fprintf(w, "%s\n%s", title, desc)
+}
 
 type model struct {
 	activeTab  tab
@@ -87,14 +131,14 @@ type model struct {
 }
 
 func newList(title string, items []list.Item) list.Model {
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(lipgloss.NoColor{}).
-		Background(lipgloss.NoColor{}).
-		Reverse(true)
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
+	dd := list.NewDefaultDelegate()
+	dd.Styles.SelectedTitle = dd.Styles.SelectedTitle.
 		Foreground(lipgloss.NoColor{}).
 		Background(lipgloss.NoColor{})
+	dd.Styles.SelectedDesc = dd.Styles.SelectedDesc.
+		Foreground(lipgloss.NoColor{}).
+		Background(lipgloss.NoColor{})
+	delegate := itemDelegate{dd}
 	l := list.New(items, delegate, 80, 20)
 	l.Title = title
 	l.SetShowHelp(false)
