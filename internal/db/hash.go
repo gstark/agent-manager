@@ -21,6 +21,8 @@ func ComputeContentHash(body string, files map[string][]byte) string {
 	sort.Strings(names)
 
 	for _, name := range names {
+		h.Write([]byte(name))
+		h.Write([]byte{0})
 		if name == "SKILL.md" {
 			h.Write([]byte(body))
 		} else {
