@@ -20,6 +20,14 @@ var skillsAuditCmd = &cobra.Command{
 			return err
 		}
 
+		// Backfill content hashes for skills imported before hashing existed
+		for _, s := range skills {
+			if s.ContentHash == "" && s.Source != "" && s.Source != "local" {
+				s.ContentHash = db.ComputeContentHash(s.Body, s.Files)
+				db.SaveSkill(s)
+			}
+		}
+
 		fetch := func(source string) (string, map[string][]byte, error) {
 			raw := strings.TrimPrefix(source, "skills.sh/")
 			ref, err := importer.ParseSkillRef(raw)
