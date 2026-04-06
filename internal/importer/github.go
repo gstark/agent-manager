@@ -112,6 +112,8 @@ func Import(ref *SkillRef) (*db.Skill, error) {
 		}
 	}
 
+	s.ContentHash = db.ComputeContentHash(s.Body, s.Files)
+
 	return s, nil
 }
 

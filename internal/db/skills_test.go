@@ -132,3 +132,92 @@ func TestSkillWithExtraFiles(t *testing.T) {
 		t.Error("skill directory should be removed after delete")
 	}
 }
+
+func TestContentHashRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("AGM_CONFIG_DIR", tmp)
+	os.MkdirAll(tmp+"/skills", 0755)
+
+	s := &Skill{
+		Name:        "hashed",
+		Description: "A skill with a content hash",
+		Source:      "skills.sh/owner/repo@hashed",
+		Body:        "# Hashed skill",
+		ContentHash: "abc123def456",
+	}
+
+	if err := SaveSkill(s); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadSkill("hashed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ContentHash != "abc123def456" {
+		t.Errorf("ContentHash: got %q, want %q", loaded.ContentHash, "abc123def456")
+	}
+}
+
+func TestContentHashEmptyForLegacySkills(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("AGM_CONFIG_DIR", tmp)
+	skillDir := filepath.Join(tmp, "skills", "legacy")
+	os.MkdirAll(skillDir, 0755)
+
+	// Write a SKILL.md without content_hash in frontmatter
+	content := "---\nname: legacy\ndescription: Old skill\nsource: skills.sh/owner/repo@legacy\n---\n\n# Legacy"
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0644)
+
+	loaded, err := LoadSkill("legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ContentHash != "" {
+		t.Errorf("expected empty ContentHash for legacy skill, got %q", loaded.ContentHash)
+	}
+}
+
+func TestComputeContentHash(t *testing.T) {
+	body := "# My Skill"
+	files := map[string][]byte{
+		"helper.sh":   []byte("#!/bin/bash\necho hello"),
+		"template.md": []byte("# Template"),
+	}
+
+	hash1 := ComputeContentHash(body, files)
+	if hash1 == "" {
+		t.Fatal("expected non-empty hash")
+	}
+
+	// Same content → same hash (deterministic)
+	hash2 := ComputeContentHash(body, files)
+	if hash1 != hash2 {
+		t.Errorf("hash not deterministic: %q != %q", hash1, hash2)
+	}
+
+	// Different body → different hash
+	hash3 := ComputeContentHash("# Changed", files)
+	if hash3 == hash1 {
+		t.Error("expected different hash when body changes")
+	}
+
+	// Different file content → different hash
+	files2 := map[string][]byte{
+		"helper.sh":   []byte("#!/bin/bash\necho changed"),
+		"template.md": []byte("# Template"),
+	}
+	hash4 := ComputeContentHash(body, files2)
+	if hash4 == hash1 {
+		t.Error("expected different hash when file content changes")
+	}
+
+	// No extra files → still works
+	hash5 := ComputeContentHash(body, nil)
+	if hash5 == "" {
+		t.Fatal("expected non-empty hash with no extra files")
+	}
+	if hash5 == hash1 {
+		t.Error("expected different hash when files are removed")
+	}
+}

@@ -111,4 +111,18 @@ func TestImportMultiFile(t *testing.T) {
 	if string(skill.Files["helper.sh"]) != helperSH {
 		t.Errorf("helper.sh: got %q", skill.Files["helper.sh"])
 	}
+
+	// ContentHash should be set
+	if skill.ContentHash == "" {
+		t.Error("expected ContentHash to be set after import")
+	}
+
+	// Re-import should produce the same hash (deterministic)
+	skill2, err := Import(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skill2.ContentHash != skill.ContentHash {
+		t.Errorf("hash not deterministic: %q != %q", skill2.ContentHash, skill.ContentHash)
+	}
 }
