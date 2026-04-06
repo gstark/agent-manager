@@ -4,6 +4,7 @@ type Skill struct {
 	Name        string            `yaml:"name"`
 	Description string            `yaml:"description"`
 	Source      string            `yaml:"source"`
+	ContentHash string            `yaml:"content_hash,omitempty"`
 	Files       map[string][]byte `yaml:"-"`
 	Body        string            `yaml:"-"`
 }
