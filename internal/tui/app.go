@@ -94,8 +94,7 @@ func newList(title string, items []list.Item) list.Model {
 		Reverse(true)
 	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
 		Foreground(lipgloss.NoColor{}).
-		Background(lipgloss.NoColor{}).
-		Reverse(true)
+		Background(lipgloss.NoColor{})
 	l := list.New(items, delegate, 80, 20)
 	l.Title = title
 	l.SetShowHelp(false)
