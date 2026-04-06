@@ -212,6 +212,22 @@ func TestComputeContentHash(t *testing.T) {
 		t.Error("expected different hash when file content changes")
 	}
 
+	// Content boundary shift → different hash
+	// "ab"+"cd" in two files must differ from "a"+"bcd" in two files
+	filesA := map[string][]byte{
+		"x.txt": []byte("ab"),
+		"y.txt": []byte("cd"),
+	}
+	filesB := map[string][]byte{
+		"x.txt": []byte("a"),
+		"y.txt": []byte("bcd"),
+	}
+	hashA := ComputeContentHash("", filesA)
+	hashB := ComputeContentHash("", filesB)
+	if hashA == hashB {
+		t.Error("expected different hashes when content shifts between file boundaries")
+	}
+
 	// No extra files → still works
 	hash5 := ComputeContentHash(body, nil)
 	if hash5 == "" {
