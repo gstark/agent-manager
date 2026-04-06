@@ -19,12 +19,12 @@ import (
 type tab int
 
 const (
-	tabSkills tab = iota
+	tabPacks tab = iota
 	tabRules
-	tabPacks
+	tabSkills
 )
 
-var tabNames = []string{"Skills", "Rules", "Packs"}
+var tabNames = []string{"Packs", "Rules", "Skills"}
 
 // externalEditorFinishedMsg is sent when an external $EDITOR/$VISUAL process exits.
 type externalEditorFinishedMsg struct {
@@ -225,7 +225,7 @@ func initialModel() model {
 		cfg = &config.ProjectConfig{}
 	}
 	return model{
-		activeTab:  tabSkills,
+		activeTab:  tabPacks,
 		activeView: viewList,
 		skillsList: newList("Skills", buildSkillItems(cfg.Skills)),
 		rulesList:  newList("Rules", buildRuleItems(cfg.Rules)),
