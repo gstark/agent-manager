@@ -270,17 +270,18 @@ func (m model) handleExternalEditorFinished(msg externalEditorFinishedMsg) (tea.
 	// Reload from disk — the user may have changed the name in frontmatter/TOML,
 	// but we can only reload by the original filename. The file on disk is the
 	// source of truth after external editing.
+	var cmd tea.Cmd
 	switch msg.kind {
 	case editSkill:
-		m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
+		cmd = m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
 	case editRule:
-		m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
+		cmd = m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
 	case editPack:
-		m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
+		cmd = m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
 	}
 	m.status = fmt.Sprintf("Saved %s", msg.name)
 	m.activeView = viewList
-	return m, nil
+	return m, cmd
 }
 
 func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -337,34 +338,43 @@ func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc":
 			m.activeView = viewList
+			var cmd tea.Cmd
 			if m.editor.saved {
 				m.status = fmt.Sprintf("Saved %s", m.editor.nameInput.Value())
 				switch m.editor.kind {
 				case editSkill:
-					m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
+					cmd = m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
 				case editRule:
-					m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
+					cmd = m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
 				case editPack:
-					m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
+					cmd = m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
 				}
 			}
-			return m, nil
+			return m, cmd
 		case "ctrl+s":
-			var cmd tea.Cmd
-			m.editor, cmd = m.editor.Update(msg)
+			var cmds []tea.Cmd
+			var editorCmd tea.Cmd
+			m.editor, editorCmd = m.editor.Update(msg)
+			if editorCmd != nil {
+				cmds = append(cmds, editorCmd)
+			}
 			if m.editor.saved {
 				m.status = fmt.Sprintf("Saved %s", m.editor.nameInput.Value())
+				var listCmd tea.Cmd
 				switch m.editor.kind {
 				case editSkill:
-					m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
+					listCmd = m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
 				case editRule:
-					m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
+					listCmd = m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
 				case editPack:
-					m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
+					listCmd = m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
+				}
+				if listCmd != nil {
+					cmds = append(cmds, listCmd)
 				}
 				m.activeView = viewList
 			}
-			return m, cmd
+			return m, tea.Batch(cmds...)
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -509,15 +519,16 @@ func (m model) deleteSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.status = fmt.Sprintf("Deleted %s", item.name)
+	var cmd tea.Cmd
 	switch m.activeTab {
 	case tabSkills:
-		m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
+		cmd = m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
 	case tabRules:
-		m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
+		cmd = m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
 	case tabPacks:
-		m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
+		cmd = m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
 	}
-	return m, nil
+	return m, cmd
 }
 
 func (m model) toggleProject() (tea.Model, tea.Cmd) {
@@ -578,15 +589,16 @@ func (m model) toggleProject() (tea.Model, tea.Cmd) {
 	m.status = fmt.Sprintf("%s %s %q", action, kind, item.name)
 
 	// Refresh current list to update active markers
+	var cmd tea.Cmd
 	switch m.activeTab {
 	case tabSkills:
-		m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
+		cmd = m.skillsList.SetItems(buildSkillItems(m.projectCfg.Skills))
 	case tabRules:
-		m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
+		cmd = m.rulesList.SetItems(buildRuleItems(m.projectCfg.Rules))
 	case tabPacks:
-		m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
+		cmd = m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
 	}
-	return m, nil
+	return m, cmd
 }
 
 func (m model) View() string {
