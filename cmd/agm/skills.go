@@ -79,9 +79,9 @@ var skillsCreateCmd = &cobra.Command{
 		if err := db.SaveSkill(s); err != nil {
 			return err
 		}
-		path := config.SkillsDir() + "/" + name + "/SKILL.md"
+		dir := config.SkillsDir() + "/" + name
 		editor := getEditor()
-		c := exec.Command(editor, path)
+		c := exec.Command(editor, dir)
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
@@ -95,12 +95,12 @@ var skillsEditCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		path := config.SkillsDir() + "/" + name + "/SKILL.md"
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		dir := config.SkillsDir() + "/" + name
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			return fmt.Errorf("skill %q not found", name)
 		}
 		editor := getEditor()
-		c := exec.Command(editor, path)
+		c := exec.Command(editor, dir)
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr

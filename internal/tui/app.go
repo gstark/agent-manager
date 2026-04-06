@@ -389,7 +389,7 @@ func (m model) newItem() (tea.Model, tea.Cmd) {
 				m.status = fmt.Sprintf("Error: %v", err)
 				return m, nil
 			}
-			path = config.SkillsDir() + "/" + name + "/SKILL.md"
+			path = config.SkillsDir() + "/" + name
 		case tabRules:
 			kind = editRule
 			name = "new-rule"
@@ -440,7 +440,7 @@ func (m model) openEditor() (tea.Model, tea.Cmd) {
 		switch m.activeTab {
 		case tabSkills:
 			kind = editSkill
-			path = config.SkillsDir() + "/" + item.name + "/SKILL.md"
+			path = config.SkillsDir() + "/" + item.name
 		case tabRules:
 			kind = editRule
 			path = config.RulesDir() + "/" + item.name + ".md"
