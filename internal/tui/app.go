@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -51,6 +52,7 @@ type view int
 const (
 	viewList view = iota
 	viewEditor
+	viewConfirmInit
 )
 
 // listItem implements list.DefaultItem for use with the default delegate.
@@ -255,10 +257,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if msg, ok := msg.(externalEditorFinishedMsg); ok {
 		return m.handleExternalEditorFinished(msg)
 	}
+	if m.activeView == viewConfirmInit {
+		return m.updateConfirmInit(msg)
+	}
 	if m.activeView == viewEditor {
 		return m.updateEditor(msg)
 	}
 	return m.updateList(msg)
+}
+
+func (m model) updateConfirmInit(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if msg, ok := msg.(tea.KeyMsg); ok {
+		switch msg.String() {
+		case "y":
+			cfg, err := initProject(m.projectDir)
+			if err != nil {
+				m.status = fmt.Sprintf("Error: %v", err)
+				m.activeView = viewList
+				return m, nil
+			}
+			m.hasProject = true
+			m.projectCfg = cfg
+			m.activeView = viewList
+			return m.toggleProject()
+		case "n", "esc":
+			m.status = ""
+			m.activeView = viewList
+			return m, nil
+		}
+	}
+	return m, nil
 }
 
 func (m model) handleExternalEditorFinished(msg externalEditorFinishedMsg) (tea.Model, tea.Cmd) {
@@ -531,9 +559,25 @@ func (m model) deleteSelected() (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func initProject(dir string) (*config.ProjectConfig, error) {
+	cfg := &config.ProjectConfig{}
+	if err := config.SaveProjectConfig(dir, cfg); err != nil {
+		return nil, err
+	}
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	f.WriteString("\n# agent-manager (generated)\n.claude/skills/\n.agents/skills/\n")
+	return cfg, nil
+}
+
 func (m model) toggleProject() (tea.Model, tea.Cmd) {
 	if !m.hasProject {
-		m.status = "No .agent-manager.toml in current directory (run 'agm init' first)"
+		m.activeView = viewConfirmInit
+		m.status = "No agm project initialized, initialize one now? (y/n)"
 		return m, nil
 	}
 
