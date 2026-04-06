@@ -1,2 +1,9 @@
 /agm
 /dist/
+
+# agent-manager (generated)
+.claude/skills/
+.agents/skills/
+
+.worktrees
+
