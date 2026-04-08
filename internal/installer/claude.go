@@ -19,7 +19,11 @@ func writeFileIfChanged(path string, content []byte) (changed bool, err error) {
 	return true, os.WriteFile(path, content, 0644)
 }
 
-func installClaude(projectDir string, r *resolved) ([]ItemResult, error) {
+// ClaudeAdapter installs artifacts for Claude Code.
+type ClaudeAdapter struct{}
+
+func (ClaudeAdapter) Name() string { return "claude" }
+func (ClaudeAdapter) Install(projectDir string, r *ArtifactSet) ([]ItemResult, error) {
 	var results []ItemResult
 
 	// Write .claude/rules/*.md
@@ -28,7 +32,7 @@ func installClaude(projectDir string, r *resolved) ([]ItemResult, error) {
 		return nil, err
 	}
 
-	for _, rule := range r.rules {
+	for _, rule := range r.Rules {
 		changed, err := writeClaudeRule(rulesDir, rule)
 		if err != nil {
 			return nil, err
@@ -40,7 +44,7 @@ func installClaude(projectDir string, r *resolved) ([]ItemResult, error) {
 		results = append(results, ItemResult{Kind: "rule", Name: rule.Name, Status: status})
 	}
 
-	for _, lr := range r.localRules {
+	for _, lr := range r.LocalRules {
 		rule := &db.Rule{
 			Name:        lr.Name,
 			Description: lr.Description,
@@ -59,7 +63,7 @@ func installClaude(projectDir string, r *resolved) ([]ItemResult, error) {
 	}
 
 	// Project skills from canonical .agm/skills/ into .claude/skills/
-	if err := projectSkills(projectDir, ".claude", r.skills); err != nil {
+	if err := projectSkills(projectDir, ".claude", r.Skills); err != nil {
 		return nil, err
 	}
 

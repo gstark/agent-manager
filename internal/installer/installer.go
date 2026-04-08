@@ -22,15 +22,27 @@ type ItemResult struct {
 	Status ItemStatus
 }
 
-type resolved struct {
-	skills     []*db.Skill
-	rules      []*db.Rule
-	policies   []*db.Policy
-	localRules []config.LocalRule
+// ArtifactSet is the neutral, tool-agnostic output of artifact resolution.
+// Each ToolAdapter receives the full set and consumes only what it understands.
+type ArtifactSet struct {
+	Skills     []*db.Skill
+	Rules      []*db.Rule
+	Policies   []*db.Policy
+	LocalRules []config.LocalRule
 }
 
-func resolve(cfg *config.ProjectConfig) (*resolved, error) {
-	r := &resolved{localRules: cfg.LocalRules}
+// ToolAdapter installs artifacts for a specific tool runtime.
+type ToolAdapter interface {
+	Name() string
+	Install(projectDir string, artifacts *ArtifactSet) ([]ItemResult, error)
+}
+
+// DefaultAdapters is the set of adapters used by Install.
+// Append to this slice to register a third-party tool adapter.
+var DefaultAdapters = []ToolAdapter{ClaudeAdapter{}, CodexAdapter{}}
+
+func resolve(cfg *config.ProjectConfig) (*ArtifactSet, error) {
+	r := &ArtifactSet{LocalRules: cfg.LocalRules}
 	seen := struct {
 		skills   map[string]bool
 		rules    map[string]bool
@@ -45,7 +57,7 @@ func resolve(cfg *config.ProjectConfig) (*resolved, error) {
 		if err != nil {
 			return fmt.Errorf("skill %q: %w", name, err)
 		}
-		r.skills = append(r.skills, s)
+		r.Skills = append(r.Skills, s)
 		seen.skills[name] = true
 		return nil
 	}
@@ -58,7 +70,7 @@ func resolve(cfg *config.ProjectConfig) (*resolved, error) {
 		if err != nil {
 			return fmt.Errorf("rule %q: %w", name, err)
 		}
-		r.rules = append(r.rules, rule)
+		r.Rules = append(r.Rules, rule)
 		seen.rules[name] = true
 		return nil
 	}
@@ -71,7 +83,7 @@ func resolve(cfg *config.ProjectConfig) (*resolved, error) {
 		if err != nil {
 			return fmt.Errorf("policy %q: %w", name, err)
 		}
-		r.policies = append(r.policies, p)
+		r.Policies = append(r.Policies, p)
 		seen.policies[name] = true
 		return nil
 	}
@@ -119,26 +131,31 @@ func resolve(cfg *config.ProjectConfig) (*resolved, error) {
 	return r, nil
 }
 
+// Install resolves artifacts and dispatches to DefaultAdapters.
 func Install(projectDir string, cfg *config.ProjectConfig) ([]ItemResult, error) {
-	r, err := resolve(cfg)
+	return InstallWith(projectDir, cfg, DefaultAdapters)
+}
+
+// InstallWith resolves artifacts and dispatches to the given adapters.
+func InstallWith(projectDir string, cfg *config.ProjectConfig, adapters []ToolAdapter) ([]ItemResult, error) {
+	a, err := resolve(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	// Install skills once to canonical .agm/skills/ tree
-	skillResults, err := installCanonicalSkills(projectDir, r.skills)
+	results, err := installCanonicalSkills(projectDir, a.Skills)
 	if err != nil {
 		return nil, fmt.Errorf("canonical skills: %w", err)
 	}
 
-	results, err := installClaude(projectDir, r)
-	if err != nil {
-		return nil, fmt.Errorf("claude: %w", err)
+	for _, adapter := range adapters {
+		ar, err := adapter.Install(projectDir, a)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", adapter.Name(), err)
+		}
+		results = append(results, ar...)
 	}
-	results = append(results, skillResults...)
 
-	if err := installCodex(projectDir, r); err != nil {
-		return nil, fmt.Errorf("codex: %w", err)
-	}
 	return results, nil
 }

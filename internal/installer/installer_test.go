@@ -379,3 +379,111 @@ func TestInstallPackWithPolicies(t *testing.T) {
 		t.Error(".codex/rules/sandbox.md not created from pack")
 	}
 }
+
+// mockAdapter records whether it was called and what artifacts it received.
+type mockAdapter struct {
+	name      string
+	called    bool
+	artifacts *ArtifactSet
+}
+
+func (m *mockAdapter) Name() string { return m.name }
+func (m *mockAdapter) Install(projectDir string, a *ArtifactSet) ([]ItemResult, error) {
+	m.called = true
+	m.artifacts = a
+	return []ItemResult{{Kind: "mock", Name: m.name, Status: StatusInstalled}}, nil
+}
+
+func TestAdapterDispatchCombined(t *testing.T) {
+	_, projectDir := setupTestEnv(t)
+
+	cfg := &config.ProjectConfig{
+		Skills:   []string{"tdd"},
+		Rules:    []string{"concise"},
+		Policies: []string{"no-network"},
+	}
+
+	// Default adapters + a custom third-tool adapter
+	mock := &mockAdapter{name: "third-tool"}
+	adapters := append(DefaultAdapters, mock)
+
+	results, err := InstallWith(projectDir, cfg, adapters)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Claude output should exist
+	if _, err := os.Stat(filepath.Join(projectDir, "CLAUDE.md")); err != nil {
+		t.Error("CLAUDE.md not created by Claude adapter")
+	}
+
+	// Codex output should exist
+	if _, err := os.Stat(filepath.Join(projectDir, "AGENTS.md")); err != nil {
+		t.Error("AGENTS.md not created by Codex adapter")
+	}
+
+	// Third-tool adapter should have been called with artifacts
+	if !mock.called {
+		t.Fatal("third-tool adapter was not called")
+	}
+	if len(mock.artifacts.Skills) != 1 {
+		t.Errorf("third-tool got %d skills, want 1", len(mock.artifacts.Skills))
+	}
+
+	// Results should include output from all three adapters
+	kinds := map[string]bool{}
+	for _, r := range results {
+		kinds[r.Kind] = true
+	}
+	if !kinds["mock"] {
+		t.Error("results missing third-tool adapter output")
+	}
+	if !kinds["rule"] {
+		t.Error("results missing claude adapter output")
+	}
+	if !kinds["skill"] {
+		t.Error("results missing canonical skill output")
+	}
+}
+
+func TestAdapterDispatch(t *testing.T) {
+	_, projectDir := setupTestEnv(t)
+
+	cfg := &config.ProjectConfig{
+		Skills:   []string{"tdd"},
+		Rules:    []string{"concise"},
+		Policies: []string{"no-network"},
+	}
+
+	mock := &mockAdapter{name: "test-tool"}
+	results, err := InstallWith(projectDir, cfg, []ToolAdapter{mock})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !mock.called {
+		t.Fatal("adapter was not called")
+	}
+
+	// ArtifactSet should contain resolved skills, rules, policies
+	if len(mock.artifacts.Skills) != 1 || mock.artifacts.Skills[0].Name != "tdd" {
+		t.Errorf("expected 1 skill 'tdd', got %v", mock.artifacts.Skills)
+	}
+	if len(mock.artifacts.Rules) != 1 || mock.artifacts.Rules[0].Name != "concise" {
+		t.Errorf("expected 1 rule 'concise', got %v", mock.artifacts.Rules)
+	}
+	if len(mock.artifacts.Policies) != 1 || mock.artifacts.Policies[0].Name != "no-network" {
+		t.Errorf("expected 1 policy 'no-network', got %v", mock.artifacts.Policies)
+	}
+
+	// Should include results from the adapter
+	found := false
+	for _, r := range results {
+		if r.Kind == "mock" && r.Name == "test-tool" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("adapter results not included in Install output")
+	}
+}
