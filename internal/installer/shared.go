@@ -18,6 +18,14 @@ func installCanonicalSkills(projectDir string, skills []*db.Skill) ([]ItemResult
 		return nil, err
 	}
 
+	wantedSkills := make(map[string]bool, len(skills))
+	for _, skill := range skills {
+		wantedSkills[skill.Name] = true
+	}
+	if err := removeStaleDirs(skillsDir, wantedSkills); err != nil {
+		return nil, err
+	}
+
 	for _, skill := range skills {
 		dir := filepath.Join(skillsDir, skill.Name)
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -59,6 +67,14 @@ func projectSkills(projectDir string, targetBase string, skills []*db.Skill) err
 		return err
 	}
 
+	wantedSkills := make(map[string]bool, len(skills))
+	for _, skill := range skills {
+		wantedSkills[skill.Name] = true
+	}
+	if err := removeStaleDirs(targetDir, wantedSkills); err != nil {
+		return err
+	}
+
 	for _, skill := range skills {
 		linkPath := filepath.Join(targetDir, skill.Name)
 		// Relative path from targetDir to canonical dir
@@ -81,6 +97,50 @@ func projectSkills(projectDir string, targetBase string, skills []*db.Skill) err
 		}
 	}
 
+	return nil
+}
+
+// removeStaleFiles removes files in dir that match suffix but are not in the wanted set.
+// The wanted set contains filenames without the suffix (e.g. "concise" not "concise.md").
+func removeStaleFiles(dir string, wanted map[string]bool, suffix string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, suffix) {
+			continue
+		}
+		base := strings.TrimSuffix(name, suffix)
+		if !wanted[base] {
+			if err := os.RemoveAll(filepath.Join(dir, name)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// removeStaleDirs removes directories/symlinks in dir that are not in the wanted set.
+func removeStaleDirs(dir string, wanted map[string]bool) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		if !wanted[e.Name()] {
+			if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
