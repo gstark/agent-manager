@@ -34,9 +34,11 @@ Location: `~/.config/agent-manager/`
 ├── skills/
 │   └── <name>.md          # frontmatter (name, description, source) + markdown body
 ├── rules/
-│   └── <name>.md          # frontmatter (name, description, paths[]) + markdown body
+│   └── <name>.md          # prompt instructions: frontmatter (name, description, paths[]) + markdown body
+├── policies/
+│   └── <name>.md          # Codex execution-policy rules: frontmatter (name, description) + markdown body
 ├── packs/
-│   └── <name>.toml        # name, description, skills[], rules[]
+│   └── <name>.toml        # name, description, skills[], rules[], policies[]
 └── config.toml            # global settings
 ```
 
@@ -75,6 +77,7 @@ description = "Full Ruby/Rails development setup"
 
 skills = ["tdd", "debugging"]
 rules = ["ruby-conventions", "ruby-testing", "bundle-exec"]
+policies = ["allow-bundler"]
 ```
 
 ### Global config
@@ -94,6 +97,7 @@ File: `.agent-manager.toml`
 ```toml
 skills = ["tdd", "debugging"]
 rules = ["concise-output", "no-test-code-in-prod"]
+policies = ["no-network"]
 packs = ["ruby"]
 
 [[local_rules]]
@@ -109,21 +113,24 @@ content = "Use RSpec for all Ruby tests, never minitest"
 
 | Output | Purpose |
 |---|---|
-| `AGENTS.md` | All rules assembled. Rules with `paths:` get a prose note. |
-| `CLAUDE.md` | Symlink to `AGENTS.md` |
-| `.claude/rules/<name>.md` | Each rule with `paths:` frontmatter for Claude Code |
-| `.claude/skills/<name>.md` | Each skill for Claude Code |
-| `.agents/skills/<name>/SKILL.md` | Each skill for Codex |
+| `AGENTS.md` | Shared prompt instructions assembled from all rules |
+| `CLAUDE.md` | Wrapper file that imports `@AGENTS.md` |
+| `.claude/rules/<name>.md` | Per-rule files with `paths:` frontmatter for Claude Code |
+| `.agm/skills/<name>/SKILL.md` | Canonical skill (single copy) |
+| `.claude/skills/<name>` | Symlink → `.agm/skills/<name>` |
+| `.agents/skills/<name>` | Symlink → `.agm/skills/<name>` |
+| `.codex/rules/<name>.md` | Execution policies for Codex |
 
 `agm init` appends to `.gitignore`:
 
 ```
 # agent-manager (generated)
+.agm/
 .claude/skills/
 .agents/skills/
 ```
 
-Rules, `AGENTS.md`, and `CLAUDE.md` are committed so teammates without the tool still get them.
+Rules, policies, `AGENTS.md`, and `CLAUDE.md` are committed so teammates without the tool still get them. Generated skill directories and `.agm/` are gitignored.
 
 ## Skills.sh Import
 
