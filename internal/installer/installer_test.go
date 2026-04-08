@@ -1,11 +1,13 @@
 package installer
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/adrg/frontmatter"
 	"github.com/gstark/agent-manager/internal/config"
 	"github.com/gstark/agent-manager/internal/db"
 )
@@ -185,6 +187,44 @@ func TestInstallCanonicalSkillContent(t *testing.T) {
 	}
 	if string(helper) != "#!/bin/bash\necho test" {
 		t.Errorf("helper content = %q", string(helper))
+	}
+}
+
+func TestInstallCanonicalSkillQuotesDescription(t *testing.T) {
+	configDir := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("AGM_CONFIG_DIR", configDir)
+	config.EnsureDirs()
+
+	// Description with YAML-special characters: colons, quotes, hash
+	db.SaveSkill(&db.Skill{
+		Name:        "tricky",
+		Description: `Deploy: "production" #1 server`,
+		Source:      "local",
+		Body:        "Handle with care.",
+	})
+
+	cfg := &config.ProjectConfig{
+		Skills: []string{"tricky"},
+	}
+
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(projectDir, ".agm", "skills", "tricky", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-parse to verify the frontmatter round-trips correctly
+	var parsed db.Skill
+	_, err = frontmatter.Parse(bytes.NewReader(content), &parsed)
+	if err != nil {
+		t.Fatalf("failed to re-parse installed SKILL.md: %v\ncontent:\n%s", err, content)
+	}
+	if parsed.Description != `Deploy: "production" #1 server` {
+		t.Errorf("description round-trip failed: got %q", parsed.Description)
 	}
 }
 

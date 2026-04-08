@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gstark/agent-manager/internal/db"
+	"gopkg.in/yaml.v3"
 )
 
 // installCanonicalSkills writes each skill once to .agm/skills/<name>/ and
@@ -32,8 +33,14 @@ func installCanonicalSkills(projectDir string, skills []*db.Skill) ([]ItemResult
 			return nil, err
 		}
 
-		content := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n%s\n",
-			skill.Name, skill.Description, strings.TrimSpace(skill.Body))
+		fm, err := yaml.Marshal(struct {
+			Name        string `yaml:"name"`
+			Description string `yaml:"description"`
+		}{skill.Name, skill.Description})
+		if err != nil {
+			return nil, err
+		}
+		content := fmt.Sprintf("---\n%s---\n\n%s\n", string(fm), strings.TrimSpace(skill.Body))
 		changed, err := writeFileIfChanged(filepath.Join(dir, "SKILL.md"), []byte(content))
 		if err != nil {
 			return nil, err
