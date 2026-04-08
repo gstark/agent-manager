@@ -25,15 +25,17 @@ type ItemResult struct {
 type resolved struct {
 	skills     []*db.Skill
 	rules      []*db.Rule
+	policies   []*db.Policy
 	localRules []config.LocalRule
 }
 
 func resolve(cfg *config.ProjectConfig) (*resolved, error) {
 	r := &resolved{localRules: cfg.LocalRules}
 	seen := struct {
-		skills map[string]bool
-		rules  map[string]bool
-	}{make(map[string]bool), make(map[string]bool)}
+		skills   map[string]bool
+		rules    map[string]bool
+		policies map[string]bool
+	}{make(map[string]bool), make(map[string]bool), make(map[string]bool)}
 
 	addSkill := func(name string) error {
 		if seen.skills[name] {
@@ -61,6 +63,19 @@ func resolve(cfg *config.ProjectConfig) (*resolved, error) {
 		return nil
 	}
 
+	addPolicy := func(name string) error {
+		if seen.policies[name] {
+			return nil
+		}
+		p, err := db.LoadPolicy(name)
+		if err != nil {
+			return fmt.Errorf("policy %q: %w", name, err)
+		}
+		r.policies = append(r.policies, p)
+		seen.policies[name] = true
+		return nil
+	}
+
 	// Expand packs first
 	for _, packName := range cfg.Packs {
 		p, err := db.LoadPack(packName)
@@ -77,9 +92,14 @@ func resolve(cfg *config.ProjectConfig) (*resolved, error) {
 				return nil, err
 			}
 		}
+		for _, pol := range p.Policies {
+			if err := addPolicy(pol); err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	// Then explicit skills/rules (dedup against packs)
+	// Then explicit skills/rules/policies (dedup against packs)
 	for _, name := range cfg.Skills {
 		if err := addSkill(name); err != nil {
 			return nil, err
@@ -87,6 +107,11 @@ func resolve(cfg *config.ProjectConfig) (*resolved, error) {
 	}
 	for _, name := range cfg.Rules {
 		if err := addRule(name); err != nil {
+			return nil, err
+		}
+	}
+	for _, name := range cfg.Policies {
+		if err := addPolicy(name); err != nil {
 			return nil, err
 		}
 	}

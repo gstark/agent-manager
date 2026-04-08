@@ -19,6 +19,7 @@ type LocalRule struct {
 type ProjectConfig struct {
 	Skills     []string    `toml:"skills"`
 	Rules      []string    `toml:"rules"`
+	Policies   []string    `toml:"policies"`
 	Packs      []string    `toml:"packs"`
 	LocalRules []LocalRule `toml:"local_rules"`
 }

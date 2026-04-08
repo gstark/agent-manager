@@ -59,5 +59,25 @@ func installCodex(projectDir string, r *resolved) error {
 		}
 	}
 
+	// Write .codex/rules/<name>.md for execution policies
+	if len(r.policies) > 0 {
+		codexRulesDir := filepath.Join(projectDir, ".codex", "rules")
+		if err := os.MkdirAll(codexRulesDir, 0755); err != nil {
+			return err
+		}
+		for _, p := range r.policies {
+			var pb strings.Builder
+			if p.Description != "" {
+				fmt.Fprintf(&pb, "# %s\n\n", p.Description)
+			}
+			pb.WriteString(strings.TrimSpace(p.Body))
+			pb.WriteString("\n")
+			path := filepath.Join(codexRulesDir, p.Name+".md")
+			if err := os.WriteFile(path, []byte(pb.String()), 0644); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }

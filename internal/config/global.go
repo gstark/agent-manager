@@ -35,7 +35,7 @@ func LoadGlobalConfig() (*GlobalConfig, error) {
 }
 
 func EnsureDirs() error {
-	for _, dir := range []string{ConfigDir(), SkillsDir(), RulesDir(), PacksDir()} {
+	for _, dir := range []string{ConfigDir(), SkillsDir(), RulesDir(), PoliciesDir(), PacksDir()} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}

@@ -11,6 +11,7 @@ func TestLoadProjectConfig(t *testing.T) {
 	content := `
 skills = ["tdd", "debugging"]
 rules = ["concise-output"]
+policies = ["no-network"]
 packs = ["ruby"]
 
 [[local_rules]]
@@ -32,11 +33,37 @@ content = "Always use RSpec"
 	if len(cfg.Packs) != 1 {
 		t.Errorf("expected 1 pack, got %d", len(cfg.Packs))
 	}
+	if len(cfg.Policies) != 1 {
+		t.Errorf("expected 1 policy, got %d", len(cfg.Policies))
+	}
 	if len(cfg.LocalRules) != 1 {
 		t.Errorf("expected 1 local rule, got %d", len(cfg.LocalRules))
 	}
 	if cfg.LocalRules[0].Name != "use-rspec" {
 		t.Errorf("expected use-rspec, got %q", cfg.LocalRules[0].Name)
+	}
+}
+
+func TestLoadProjectConfig_BackwardCompatible(t *testing.T) {
+	tmp := t.TempDir()
+	// Old config without policies field should still work
+	content := `
+skills = ["tdd"]
+rules = ["concise-output"]
+packs = ["ruby"]
+`
+	path := filepath.Join(tmp, ".agent-manager.toml")
+	os.WriteFile(path, []byte(content), 0644)
+
+	cfg, err := LoadProjectConfig(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Policies) != 0 {
+		t.Errorf("expected 0 policies for old config, got %d", len(cfg.Policies))
+	}
+	if len(cfg.Rules) != 1 {
+		t.Errorf("expected 1 rule, got %d", len(cfg.Rules))
 	}
 }
 

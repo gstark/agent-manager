@@ -15,5 +15,6 @@ func ConfigDir() string {
 
 func SkillsDir() string        { return filepath.Join(ConfigDir(), "skills") }
 func RulesDir() string         { return filepath.Join(ConfigDir(), "rules") }
+func PoliciesDir() string      { return filepath.Join(ConfigDir(), "policies") }
 func PacksDir() string         { return filepath.Join(ConfigDir(), "packs") }
 func GlobalConfigPath() string { return filepath.Join(ConfigDir(), "config.toml") }
