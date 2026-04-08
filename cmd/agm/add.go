@@ -11,8 +11,8 @@ import (
 )
 
 var addCmd = &cobra.Command{
-	Use:   "add [skill|rule|pack] <name>",
-	Short: "Add a skill, rule, or pack to the project config",
+	Use:   "add [skill|rule|policy|pack] <name>",
+	Short: "Add a skill, rule, policy, or pack to the project config",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		kind, name := args[0], args[1]
@@ -32,12 +32,16 @@ var addCmd = &cobra.Command{
 			if !slices.Contains(cfg.Rules, name) {
 				cfg.Rules = append(cfg.Rules, name)
 			}
+		case "policy":
+			if !slices.Contains(cfg.Policies, name) {
+				cfg.Policies = append(cfg.Policies, name)
+			}
 		case "pack":
 			if !slices.Contains(cfg.Packs, name) {
 				cfg.Packs = append(cfg.Packs, name)
 			}
 		default:
-			return fmt.Errorf("unknown type %q (use skill, rule, or pack)", kind)
+			return fmt.Errorf("unknown type %q (use skill, rule, policy, or pack)", kind)
 		}
 
 		if err := config.SaveProjectConfig(dir, cfg); err != nil {

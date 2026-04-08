@@ -11,8 +11,8 @@ import (
 )
 
 var removeCmd = &cobra.Command{
-	Use:   "remove [skill|rule|pack] <name>",
-	Short: "Remove a skill, rule, or pack from the project config",
+	Use:   "remove [skill|rule|policy|pack] <name>",
+	Short: "Remove a skill, rule, policy, or pack from the project config",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		kind, name := args[0], args[1]
@@ -28,10 +28,12 @@ var removeCmd = &cobra.Command{
 			cfg.Skills = slices.DeleteFunc(cfg.Skills, func(s string) bool { return s == name })
 		case "rule":
 			cfg.Rules = slices.DeleteFunc(cfg.Rules, func(s string) bool { return s == name })
+		case "policy":
+			cfg.Policies = slices.DeleteFunc(cfg.Policies, func(s string) bool { return s == name })
 		case "pack":
 			cfg.Packs = slices.DeleteFunc(cfg.Packs, func(s string) bool { return s == name })
 		default:
-			return fmt.Errorf("unknown type %q (use skill, rule, or pack)", kind)
+			return fmt.Errorf("unknown type %q (use skill, rule, policy, or pack)", kind)
 		}
 
 		if err := config.SaveProjectConfig(dir, cfg); err != nil {
