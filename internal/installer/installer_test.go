@@ -3,6 +3,7 @@ package installer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gstark/agent-manager/internal/config"
@@ -83,24 +84,152 @@ func TestInstall(t *testing.T) {
 		t.Error("claude rule not created")
 	}
 
-	// Claude skills should exist
-	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "tdd", "SKILL.md")); err != nil {
-		t.Error("claude skill not created")
+	// Canonical skill should exist under .agm/skills/
+	canonicalSkill := filepath.Join(projectDir, ".agm", "skills", "tdd", "SKILL.md")
+	if _, err := os.Stat(canonicalSkill); err != nil {
+		t.Error("canonical skill not created")
 	}
 
-	// Claude extra files should exist
-	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "tdd", "helper.sh")); err != nil {
-		t.Error("claude skill extra file not created")
+	// Canonical extra files should exist
+	canonicalHelper := filepath.Join(projectDir, ".agm", "skills", "tdd", "helper.sh")
+	if _, err := os.Stat(canonicalHelper); err != nil {
+		t.Error("canonical skill extra file not created")
 	}
 
-	// Codex skills should exist
-	if _, err := os.Stat(filepath.Join(projectDir, ".agents", "skills", "tdd", "SKILL.md")); err != nil {
-		t.Error("codex skill not created")
+	// Claude skills should be symlinks to canonical
+	claudeSkillDir := filepath.Join(projectDir, ".claude", "skills", "tdd")
+	target, err = os.Readlink(claudeSkillDir)
+	if err != nil {
+		t.Error("claude skill dir is not a symlink")
+	} else {
+		expected := filepath.Join("..", "..", ".agm", "skills", "tdd")
+		if target != expected {
+			t.Errorf("claude skill symlink points to %q, want %q", target, expected)
+		}
 	}
 
-	// Codex extra files should exist
-	if _, err := os.Stat(filepath.Join(projectDir, ".agents", "skills", "tdd", "helper.sh")); err != nil {
-		t.Error("codex skill extra file not created")
+	// Claude skill content should be readable through symlink
+	if _, err := os.Stat(filepath.Join(claudeSkillDir, "SKILL.md")); err != nil {
+		t.Error("claude skill SKILL.md not readable through symlink")
+	}
+	if _, err := os.Stat(filepath.Join(claudeSkillDir, "helper.sh")); err != nil {
+		t.Error("claude skill helper.sh not readable through symlink")
+	}
+
+	// Codex skills should be symlinks to canonical
+	codexSkillDir := filepath.Join(projectDir, ".agents", "skills", "tdd")
+	codexTarget, codexErr := os.Readlink(codexSkillDir)
+	if codexErr != nil {
+		t.Error("codex skill dir is not a symlink")
+	} else {
+		expected := filepath.Join("..", "..", ".agm", "skills", "tdd")
+		if codexTarget != expected {
+			t.Errorf("codex skill symlink points to %q, want %q", codexTarget, expected)
+		}
+	}
+
+	// Codex skill content should be readable through symlink
+	if _, err := os.Stat(filepath.Join(codexSkillDir, "SKILL.md")); err != nil {
+		t.Error("codex skill SKILL.md not readable through symlink")
+	}
+	if _, err := os.Stat(filepath.Join(codexSkillDir, "helper.sh")); err != nil {
+		t.Error("codex skill helper.sh not readable through symlink")
+	}
+}
+
+func TestInstallCanonicalSkillContent(t *testing.T) {
+	_, projectDir := setupTestEnv(t)
+
+	cfg := &config.ProjectConfig{
+		Skills: []string{"tdd"},
+	}
+
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Canonical SKILL.md should contain frontmatter and body
+	content, err := os.ReadFile(filepath.Join(projectDir, ".agm", "skills", "tdd", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(content)
+	if !strings.Contains(s, "name: tdd") {
+		t.Error("canonical SKILL.md missing name")
+	}
+	if !strings.Contains(s, "Write tests first") {
+		t.Error("canonical SKILL.md missing body")
+	}
+
+	// Helper file content should match
+	helper, err := os.ReadFile(filepath.Join(projectDir, ".agm", "skills", "tdd", "helper.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(helper) != "#!/bin/bash\necho test" {
+		t.Errorf("helper content = %q", string(helper))
+	}
+}
+
+func TestInstallSymlinkCopyFallback(t *testing.T) {
+	_, projectDir := setupTestEnv(t)
+
+	cfg := &config.ProjectConfig{
+		Skills: []string{"tdd"},
+	}
+
+	// Install normally first
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Replace a symlink with a regular directory to simulate broken symlink env
+	claudeSkillDir := filepath.Join(projectDir, ".claude", "skills", "tdd")
+	os.Remove(claudeSkillDir) // remove the symlink
+	os.MkdirAll(claudeSkillDir, 0755)
+	os.WriteFile(filepath.Join(claudeSkillDir, "stale.txt"), []byte("stale"), 0644)
+
+	// Re-install should fix it (back to symlink since symlinks work here)
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should be a symlink again
+	if _, err := os.Readlink(claudeSkillDir); err != nil {
+		t.Error("claude skill dir should be a symlink after re-install")
+	}
+}
+
+func TestInstallIdempotent(t *testing.T) {
+	_, projectDir := setupTestEnv(t)
+
+	cfg := &config.ProjectConfig{
+		Skills: []string{"tdd"},
+		Rules:  []string{"concise"},
+	}
+
+	results1, err := Install(projectDir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First install: everything should be StatusInstalled
+	for _, r := range results1 {
+		if r.Status != StatusInstalled {
+			t.Errorf("first install: %s %q got status %d, want StatusInstalled", r.Kind, r.Name, r.Status)
+		}
+	}
+
+	results2, err := Install(projectDir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second install: everything should be StatusUpToDate
+	for _, r := range results2 {
+		if r.Status != StatusUpToDate {
+			t.Errorf("second install: %s %q got status %d, want StatusUpToDate", r.Kind, r.Name, r.Status)
+		}
 	}
 }
 

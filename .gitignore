@@ -2,6 +2,7 @@
 /dist/
 
 # agent-manager (generated)
+.agm/
 .claude/skills/
 .agents/skills/
 

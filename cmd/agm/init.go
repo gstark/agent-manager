@@ -32,7 +32,7 @@ var initCmd = &cobra.Command{
 			return err
 		}
 		defer f.Close()
-		f.WriteString("\n# agent-manager (generated)\n.claude/skills/\n.agents/skills/\n")
+		f.WriteString("\n# agent-manager (generated)\n.agm/\n.claude/skills/\n.agents/skills/\n")
 
 		fmt.Println("Created", config.ProjectConfigFile)
 		return nil

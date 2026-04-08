@@ -100,10 +100,18 @@ func Install(projectDir string, cfg *config.ProjectConfig) ([]ItemResult, error)
 		return nil, err
 	}
 
+	// Install skills once to canonical .agm/skills/ tree
+	skillResults, err := installCanonicalSkills(projectDir, r.skills)
+	if err != nil {
+		return nil, fmt.Errorf("canonical skills: %w", err)
+	}
+
 	results, err := installClaude(projectDir, r)
 	if err != nil {
 		return nil, fmt.Errorf("claude: %w", err)
 	}
+	results = append(results, skillResults...)
+
 	if err := installCodex(projectDir, r); err != nil {
 		return nil, fmt.Errorf("codex: %w", err)
 	}

@@ -40,24 +40,6 @@ func installCodex(projectDir string, r *resolved) error {
 		return err
 	}
 
-	// Write .agents/skills/<name>/SKILL.md for Codex
-	for _, skill := range r.skills {
-		skillDir := filepath.Join(projectDir, ".agents", "skills", skill.Name)
-		if err := os.MkdirAll(skillDir, 0755); err != nil {
-			return err
-		}
-		content := fmt.Sprintf("---\nname: %s\ndescription: %q\n---\n\n%s\n",
-			skill.Name, skill.Description, strings.TrimSpace(skill.Body))
-		path := filepath.Join(skillDir, "SKILL.md")
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			return err
-		}
-		for name, data := range skill.Files {
-			if err := os.WriteFile(filepath.Join(skillDir, name), data, 0644); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	// Project skills from canonical .agm/skills/ into .agents/skills/
+	return projectSkills(projectDir, ".agents", r.skills)
 }
