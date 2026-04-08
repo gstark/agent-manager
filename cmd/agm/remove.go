@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/gstark/agent-manager/internal/config"
+	"github.com/gstark/agent-manager/internal/installer"
 	"github.com/spf13/cobra"
 )
 
@@ -34,6 +35,9 @@ var removeCmd = &cobra.Command{
 		}
 
 		if err := config.SaveProjectConfig(dir, cfg); err != nil {
+			return err
+		}
+		if _, err := installer.Install(dir, cfg); err != nil {
 			return err
 		}
 		fmt.Printf("Removed %s %q\n", kind, name)
