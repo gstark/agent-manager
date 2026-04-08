@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -15,6 +16,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/gstark/agent-manager/internal/config"
 	"github.com/gstark/agent-manager/internal/db"
+	"github.com/sahilm/fuzzy"
 )
 
 type tab int
@@ -63,6 +65,11 @@ type listItem struct {
 
 var selectedNameStyle = lipgloss.NewStyle().Reverse(true)
 
+const (
+	filterFieldSeparator = "\x00"
+	nameMatchBonus       = 1000
+)
+
 func (i listItem) Title() string {
 	if i.active {
 		return "✅ " + i.name
@@ -75,7 +82,70 @@ func (i listItem) Description() string {
 	}
 	return "  " + i.desc
 }
-func (i listItem) FilterValue() string { return i.name + " " + i.desc }
+func (i listItem) FilterValue() string { return i.name + filterFieldSeparator + i.desc }
+
+func splitFilterTarget(target string) (name string, desc string) {
+	name, desc, found := strings.Cut(target, filterFieldSeparator)
+	if found {
+		return name, desc
+	}
+	return target, ""
+}
+
+func weightedNameFirstFilter(term string, targets []string) []list.Rank {
+	if term == "" {
+		return nil
+	}
+
+	nameTargets := make([]string, len(targets))
+	descTargets := make([]string, len(targets))
+	for i, target := range targets {
+		nameTargets[i], descTargets[i] = splitFilterTarget(target)
+	}
+
+	nameMatches := fuzzy.FindNoSort(term, nameTargets)
+	descMatches := fuzzy.FindNoSort(term, descTargets)
+
+	type scoredRank struct {
+		list.Rank
+		score int
+	}
+
+	scoredByIndex := make(map[int]scoredRank, len(targets))
+	for _, match := range descMatches {
+		scoredByIndex[match.Index] = scoredRank{
+			Rank: list.Rank{
+				Index:          match.Index,
+				MatchedIndexes: match.MatchedIndexes,
+			},
+			score: match.Score,
+		}
+	}
+	for _, match := range nameMatches {
+		scoredByIndex[match.Index] = scoredRank{
+			Rank: list.Rank{
+				Index:          match.Index,
+				MatchedIndexes: match.MatchedIndexes,
+			},
+			score: match.Score + nameMatchBonus,
+		}
+	}
+
+	scoredRanks := make([]scoredRank, 0, len(scoredByIndex))
+	for _, rank := range scoredByIndex {
+		scoredRanks = append(scoredRanks, rank)
+	}
+
+	sort.SliceStable(scoredRanks, func(i, j int) bool {
+		return scoredRanks[i].score > scoredRanks[j].score
+	})
+
+	ranks := make([]list.Rank, len(scoredRanks))
+	for i, rank := range scoredRanks {
+		ranks[i] = rank.Rank
+	}
+	return ranks
+}
 
 // itemDelegate wraps DefaultDelegate to highlight only the name on selection.
 type itemDelegate struct {
@@ -142,6 +212,7 @@ func newList(title string, items []list.Item) list.Model {
 		Background(lipgloss.NoColor{})
 	delegate := itemDelegate{dd}
 	l := list.New(items, delegate, 80, 20)
+	l.Filter = weightedNameFirstFilter
 	l.Title = title
 	l.SetShowHelp(false)
 	l.SetShowTitle(false)
