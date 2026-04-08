@@ -62,6 +62,18 @@ func (ClaudeAdapter) Install(projectDir string, r *ArtifactSet) ([]ItemResult, e
 		results = append(results, ItemResult{Kind: "rule", Name: rule.Name, Status: status})
 	}
 
+	// Remove stale .claude/rules/*.md files
+	wantedRules := make(map[string]bool, len(r.Rules)+len(r.LocalRules))
+	for _, rule := range r.Rules {
+		wantedRules[rule.Name] = true
+	}
+	for _, lr := range r.LocalRules {
+		wantedRules[lr.Name] = true
+	}
+	if err := removeStaleFiles(rulesDir, wantedRules, ".md"); err != nil {
+		return nil, err
+	}
+
 	// Project skills from canonical .agm/skills/ into .claude/skills/
 	if err := projectSkills(projectDir, ".claude", r.Skills); err != nil {
 		return nil, err

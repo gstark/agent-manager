@@ -50,8 +50,8 @@ func (CodexAdapter) Install(projectDir string, r *ArtifactSet) ([]ItemResult, er
 	}
 
 	// Write .codex/rules/<name>.md for execution policies
+	codexRulesDir := filepath.Join(projectDir, ".codex", "rules")
 	if len(r.Policies) > 0 {
-		codexRulesDir := filepath.Join(projectDir, ".codex", "rules")
 		if err := os.MkdirAll(codexRulesDir, 0755); err != nil {
 			return nil, err
 		}
@@ -67,6 +67,15 @@ func (CodexAdapter) Install(projectDir string, r *ArtifactSet) ([]ItemResult, er
 				return nil, err
 			}
 		}
+	}
+
+	// Remove stale .codex/rules/*.md files
+	wantedPolicies := make(map[string]bool, len(r.Policies))
+	for _, p := range r.Policies {
+		wantedPolicies[p.Name] = true
+	}
+	if err := removeStaleFiles(codexRulesDir, wantedPolicies, ".md"); err != nil {
+		return nil, err
 	}
 
 	return nil, nil

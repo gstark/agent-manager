@@ -446,6 +446,192 @@ func TestAdapterDispatchCombined(t *testing.T) {
 	}
 }
 
+func TestInstallCleansStaleClaudeRules(t *testing.T) {
+	_, projectDir := setupTestEnv(t)
+
+	// Install with two rules
+	cfg := &config.ProjectConfig{
+		Rules: []string{"concise", "ruby-style"},
+	}
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both rules should exist
+	for _, name := range []string{"concise", "ruby-style"} {
+		if _, err := os.Stat(filepath.Join(projectDir, ".claude", "rules", name+".md")); err != nil {
+			t.Fatalf("rule %s not created", name)
+		}
+	}
+
+	// Re-install with only one rule — stale rule should be removed
+	cfg2 := &config.ProjectConfig{
+		Rules: []string{"concise"},
+	}
+	if _, err := Install(projectDir, cfg2); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "rules", "concise.md")); err != nil {
+		t.Error("kept rule should still exist")
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "rules", "ruby-style.md")); !os.IsNotExist(err) {
+		t.Error("stale claude rule should be removed")
+	}
+}
+
+func TestInstallCleansStaleClaudeSkills(t *testing.T) {
+	_, projectDir := setupTestEnv(t)
+
+	// Add a second skill
+	db.SaveSkill(&db.Skill{
+		Name:        "review",
+		Description: "Code review",
+		Source:      "local",
+		Body:        "# Review\nReview code.",
+	})
+
+	cfg := &config.ProjectConfig{
+		Skills: []string{"tdd", "review"},
+	}
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both skills should exist
+	for _, name := range []string{"tdd", "review"} {
+		if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", name)); err != nil {
+			t.Fatalf("skill %s not created", name)
+		}
+		if _, err := os.Stat(filepath.Join(projectDir, ".agm", "skills", name)); err != nil {
+			t.Fatalf("canonical skill %s not created", name)
+		}
+	}
+
+	// Re-install with only tdd — review should be cleaned up everywhere
+	cfg2 := &config.ProjectConfig{
+		Skills: []string{"tdd"},
+	}
+	if _, err := Install(projectDir, cfg2); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "tdd")); err != nil {
+		t.Error("kept skill should still exist in .claude/skills/")
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "review")); !os.IsNotExist(err) {
+		t.Error("stale skill should be removed from .claude/skills/")
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".agm", "skills", "review")); !os.IsNotExist(err) {
+		t.Error("stale skill should be removed from .agm/skills/")
+	}
+}
+
+func TestInstallCleansStaleCodexPolicies(t *testing.T) {
+	_, projectDir := setupTestEnv(t)
+
+	// Add a second policy
+	db.SavePolicy(&db.Policy{
+		Name:        "no-fs",
+		Description: "Deny filesystem access",
+		Body:        "Do not write to disk.",
+	})
+
+	cfg := &config.ProjectConfig{
+		Policies: []string{"no-network", "no-fs"},
+	}
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"no-network", "no-fs"} {
+		if _, err := os.Stat(filepath.Join(projectDir, ".codex", "rules", name+".md")); err != nil {
+			t.Fatalf("policy %s not created", name)
+		}
+	}
+
+	// Re-install without no-fs
+	cfg2 := &config.ProjectConfig{
+		Policies: []string{"no-network"},
+	}
+	if _, err := Install(projectDir, cfg2); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, ".codex", "rules", "no-network.md")); err != nil {
+		t.Error("kept policy should still exist")
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".codex", "rules", "no-fs.md")); !os.IsNotExist(err) {
+		t.Error("stale codex policy should be removed")
+	}
+}
+
+func TestInstallCleansStaleCodexSkills(t *testing.T) {
+	_, projectDir := setupTestEnv(t)
+
+	db.SaveSkill(&db.Skill{
+		Name:        "review",
+		Description: "Code review",
+		Source:      "local",
+		Body:        "# Review\nReview code.",
+	})
+
+	cfg := &config.ProjectConfig{
+		Skills: []string{"tdd", "review"},
+	}
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, ".agents", "skills", "review")); err != nil {
+		t.Fatal("codex skill not created")
+	}
+
+	cfg2 := &config.ProjectConfig{
+		Skills: []string{"tdd"},
+	}
+	if _, err := Install(projectDir, cfg2); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, ".agents", "skills", "tdd")); err != nil {
+		t.Error("kept skill should still exist in .agents/skills/")
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".agents", "skills", "review")); !os.IsNotExist(err) {
+		t.Error("stale skill should be removed from .agents/skills/")
+	}
+}
+
+func TestInstallPreservesNonManagedFiles(t *testing.T) {
+	_, projectDir := setupTestEnv(t)
+
+	cfg := &config.ProjectConfig{
+		Rules: []string{"concise"},
+	}
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Place a non-.md file in .claude/rules/ — should NOT be removed
+	foreignFile := filepath.Join(projectDir, ".claude", "rules", "user-custom.txt")
+	os.WriteFile(foreignFile, []byte("custom"), 0644)
+
+	// Re-install with empty rules
+	cfg2 := &config.ProjectConfig{}
+	if _, err := Install(projectDir, cfg2); err != nil {
+		t.Fatal(err)
+	}
+
+	// concise.md should be gone
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "rules", "concise.md")); !os.IsNotExist(err) {
+		t.Error("stale rule should be removed")
+	}
+	// Non-.md file should be preserved
+	if _, err := os.Stat(foreignFile); err != nil {
+		t.Error("non-managed file should be preserved")
+	}
+}
+
 func TestAdapterDispatch(t *testing.T) {
 	_, projectDir := setupTestEnv(t)
 
