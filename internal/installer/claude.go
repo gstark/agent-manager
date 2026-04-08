@@ -58,37 +58,9 @@ func installClaude(projectDir string, r *resolved) ([]ItemResult, error) {
 		results = append(results, ItemResult{Kind: "rule", Name: rule.Name, Status: status})
 	}
 
-	// Write .claude/skills/*.md
-	skillsDir := filepath.Join(projectDir, ".claude", "skills")
-	if err := os.MkdirAll(skillsDir, 0755); err != nil {
+	// Project skills from canonical .agm/skills/ into .claude/skills/
+	if err := projectSkills(projectDir, ".claude", r.skills); err != nil {
 		return nil, err
-	}
-
-	for _, skill := range r.skills {
-		content := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n%s\n",
-			skill.Name, skill.Description, strings.TrimSpace(skill.Body))
-		dir := filepath.Join(skillsDir, skill.Name)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, err
-		}
-		changed, err := writeFileIfChanged(filepath.Join(dir, "SKILL.md"), []byte(content))
-		if err != nil {
-			return nil, err
-		}
-		for name, data := range skill.Files {
-			c, writeErr := writeFileIfChanged(filepath.Join(dir, name), data)
-			if writeErr != nil {
-				return nil, writeErr
-			}
-			if c {
-				changed = true
-			}
-		}
-		status := StatusUpToDate
-		if changed {
-			status = StatusInstalled
-		}
-		results = append(results, ItemResult{Kind: "skill", Name: skill.Name, Status: status})
 	}
 
 	// Generate CLAUDE.md as a wrapper that imports AGENTS.md
