@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"github.com/gstark/agent-manager/internal/config"
 	"github.com/gstark/agent-manager/internal/db"
 	"github.com/gstark/agent-manager/internal/output"
+	"github.com/gstark/agent-manager/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -92,7 +94,7 @@ var packsCreateCmd = &cobra.Command{
 
 var packsEditCmd = &cobra.Command{
 	Use:   "edit <name>",
-	Short: "Edit a pack in $EDITOR",
+	Short: "Edit a pack (interactive UI or raw $EDITOR)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -100,13 +102,39 @@ var packsEditCmd = &cobra.Command{
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			return fmt.Errorf("pack %q not found", name)
 		}
-		editor := getEditor()
-		c := exec.Command(editor, path)
-		c.Stdin = os.Stdin
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-		return c.Run()
+
+		raw, _ := cmd.Flags().GetBool("raw")
+		if raw {
+			return editPackRaw(path)
+		}
+
+		ui, _ := cmd.Flags().GetBool("ui")
+		if !ui {
+			fmt.Print("Edit with (u)i or (r)aw editor? [u/r]: ")
+			scanner := bufio.NewScanner(os.Stdin)
+			if scanner.Scan() {
+				choice := strings.TrimSpace(strings.ToLower(scanner.Text()))
+				if choice == "r" || choice == "raw" {
+					return editPackRaw(path)
+				}
+			}
+		}
+
+		p, err := db.LoadPack(name)
+		if err != nil {
+			return err
+		}
+		return tui.RunPackEditor(p)
 	},
+}
+
+func editPackRaw(path string) error {
+	editor := getEditor()
+	c := exec.Command(editor, path)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c.Run()
 }
 
 var packsDeleteCmd = &cobra.Command{
@@ -125,6 +153,8 @@ var packsDeleteCmd = &cobra.Command{
 
 func init() {
 	packsListCmd.Flags().Bool("json", false, "Output as JSON (recommended for scripts and automation)")
+	packsEditCmd.Flags().Bool("raw", false, "Open in $EDITOR without prompting")
+	packsEditCmd.Flags().Bool("ui", false, "Open interactive UI without prompting")
 	packsCmd.AddCommand(packsListCmd, packsCreateCmd, packsEditCmd, packsDeleteCmd)
 	rootCmd.AddCommand(packsCmd)
 }
