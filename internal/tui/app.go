@@ -54,6 +54,8 @@ type view int
 const (
 	viewList view = iota
 	viewEditor
+	viewPackEditor
+	viewEditChoice
 	viewConfirmInit
 )
 
@@ -188,18 +190,20 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 }
 
 type model struct {
-	activeTab  tab
-	activeView view
-	skillsList list.Model
-	rulesList  list.Model
-	packsList  list.Model
-	editor     editorModel
-	width      int
-	height     int
-	status     string
-	projectDir string
-	hasProject bool
-	projectCfg *config.ProjectConfig
+	activeTab      tab
+	activeView     view
+	skillsList     list.Model
+	rulesList      list.Model
+	packsList      list.Model
+	editor         editorModel
+	packEditor     packEditorModel
+	editChoiceName string // pack name pending edit-choice prompt
+	width          int
+	height         int
+	status         string
+	projectDir     string
+	hasProject     bool
+	projectCfg     *config.ProjectConfig
 }
 
 func newList(title string, items []list.Item) list.Model {
@@ -333,6 +337,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.activeView == viewEditor {
 		return m.updateEditor(msg)
+	}
+	if m.activeView == viewPackEditor {
+		return m.updatePackEditor(msg)
+	}
+	if m.activeView == viewEditChoice {
+		return m.updateEditChoice(msg)
 	}
 	return m.updateList(msg)
 }
@@ -485,7 +495,99 @@ func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) updatePackEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			var cmds []tea.Cmd
+			var editorCmd tea.Cmd
+			m.packEditor, editorCmd = m.packEditor.Update(msg)
+			if editorCmd != nil {
+				cmds = append(cmds, editorCmd)
+			}
+			m.activeView = viewList
+			if m.packEditor.saved {
+				m.status = fmt.Sprintf("Saved %s", m.packEditor.nameInput.Value())
+				listCmd := m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
+				if listCmd != nil {
+					cmds = append(cmds, listCmd)
+				}
+			}
+			return m, tea.Batch(cmds...)
+		case "ctrl+s":
+			var cmds []tea.Cmd
+			var editorCmd tea.Cmd
+			m.packEditor, editorCmd = m.packEditor.Update(msg)
+			if editorCmd != nil {
+				cmds = append(cmds, editorCmd)
+			}
+			if m.packEditor.saved {
+				m.status = fmt.Sprintf("Saved %s", m.packEditor.nameInput.Value())
+				listCmd := m.packsList.SetItems(buildPackItems(m.projectCfg.Packs))
+				if listCmd != nil {
+					cmds = append(cmds, listCmd)
+				}
+				m.activeView = viewList
+			}
+			return m, tea.Batch(cmds...)
+		}
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+	}
+
+	var cmd tea.Cmd
+	m.packEditor, cmd = m.packEditor.Update(msg)
+	return m, cmd
+}
+
+func (m model) updateEditChoice(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if msg, ok := msg.(tea.KeyMsg); ok {
+		switch msg.String() {
+		case "u":
+			p, err := db.LoadPack(m.editChoiceName)
+			if err != nil {
+				m.status = fmt.Sprintf("Error: %v", err)
+				m.activeView = viewList
+				return m, nil
+			}
+			m.packEditor = newPackEditorModel(p)
+			m.activeView = viewPackEditor
+			return m, m.packEditor.focusSection()
+		case "r":
+			editor := externalEditor()
+			if editor == "" {
+				editor = "vim"
+			}
+			path := config.PacksDir() + "/" + m.editChoiceName + ".toml"
+			c := exec.Command(editor, path)
+			m.activeView = viewList
+			return m, tea.ExecProcess(c, func(err error) tea.Msg {
+				return externalEditorFinishedMsg{kind: editPack, name: m.editChoiceName, err: err}
+			})
+		case "esc":
+			m.activeView = viewList
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
 func (m model) newItem() (tea.Model, tea.Cmd) {
+	// Packs: create skeleton then show edit-choice prompt
+	if m.activeTab == tabPacks {
+		name := "new-pack"
+		p := &db.Pack{Name: name, Description: name + " pack"}
+		if err := db.SavePack(p); err != nil {
+			m.status = fmt.Sprintf("Error: %v", err)
+			return m, nil
+		}
+		m.editChoiceName = name
+		m.activeView = viewEditChoice
+		return m, nil
+	}
+
 	if editor := externalEditor(); editor != "" {
 		var kind editKind
 		var name, path string
@@ -508,15 +610,6 @@ func (m model) newItem() (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			path = config.RulesDir() + "/" + name + ".md"
-		case tabPacks:
-			kind = editPack
-			name = "new-pack"
-			p := &db.Pack{Name: name, Description: name + " pack"}
-			if err := db.SavePack(p); err != nil {
-				m.status = fmt.Sprintf("Error: %v", err)
-				return m, nil
-			}
-			path = config.PacksDir() + "/" + name + ".toml"
 		}
 		c := exec.Command(editor, path)
 		return m, tea.ExecProcess(c, func(err error) tea.Msg {
@@ -529,8 +622,6 @@ func (m model) newItem() (tea.Model, tea.Cmd) {
 		m.editor = newEditor(editSkill, m.width, m.height)
 	case tabRules:
 		m.editor = newEditor(editRule, m.width, m.height)
-	case tabPacks:
-		m.editor = newEditor(editPack, m.width, m.height)
 	}
 	m.activeView = viewEditor
 	return m, m.editor.focusActive()
@@ -543,6 +634,13 @@ func (m model) openEditor() (tea.Model, tea.Cmd) {
 	}
 	item := sel.(listItem)
 
+	// Packs get the UI/raw choice prompt
+	if m.activeTab == tabPacks {
+		m.editChoiceName = item.name
+		m.activeView = viewEditChoice
+		return m, nil
+	}
+
 	if editor := externalEditor(); editor != "" {
 		var kind editKind
 		var path string
@@ -553,9 +651,6 @@ func (m model) openEditor() (tea.Model, tea.Cmd) {
 		case tabRules:
 			kind = editRule
 			path = config.RulesDir() + "/" + item.name + ".md"
-		case tabPacks:
-			kind = editPack
-			path = config.PacksDir() + "/" + item.name + ".toml"
 		}
 		c := exec.Command(editor, path)
 		return m, tea.ExecProcess(c, func(err error) tea.Msg {
@@ -581,16 +676,6 @@ func (m model) openEditor() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.editor = newEditorFromRule(r, m.width, m.height)
-		m.activeView = viewEditor
-		return m, m.editor.focusActive()
-
-	case tabPacks:
-		p, err := db.LoadPack(item.name)
-		if err != nil {
-			m.status = fmt.Sprintf("Error: %v", err)
-			return m, nil
-		}
-		m.editor = newEditorFromPack(p, m.width, m.height)
 		m.activeView = viewEditor
 		return m, m.editor.focusActive()
 	}
@@ -719,6 +804,19 @@ func (m model) toggleProject() (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	if m.activeView == viewEditor {
 		return m.editor.View()
+	}
+	if m.activeView == viewPackEditor {
+		return m.packEditor.View()
+	}
+	if m.activeView == viewEditChoice {
+		var b strings.Builder
+		b.WriteString(titleStyle.Render("Edit Pack: " + m.editChoiceName))
+		b.WriteString("\n\n")
+		b.WriteString("  (u) Interactive UI\n")
+		b.WriteString("  (r) Raw editor ($EDITOR)\n")
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render("u/r: choose • esc: cancel"))
+		return b.String()
 	}
 
 	var b strings.Builder

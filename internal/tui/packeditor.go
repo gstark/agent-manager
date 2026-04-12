@@ -29,8 +29,8 @@ type toggleItem struct {
 }
 
 type packEditorModel struct {
-	pack        *db.Pack
 	original    string // original name for rename detection
+	policies    []string
 	nameInput   textinput.Model
 	descInput   textinput.Model
 	skills      []toggleItem
@@ -54,7 +54,6 @@ func newPackEditorModel(p *db.Pack) packEditorModel {
 	desc.Placeholder = "description"
 	desc.CharLimit = 200
 
-	// Load all skills
 	allSkills, _ := db.ListSkills()
 	skillItems := make([]toggleItem, len(allSkills))
 	for i, s := range allSkills {
@@ -65,7 +64,6 @@ func newPackEditorModel(p *db.Pack) packEditorModel {
 		}
 	}
 
-	// Load all rules
 	allRules, _ := db.ListRules()
 	ruleItems := make([]toggleItem, len(allRules))
 	for i, r := range allRules {
@@ -77,8 +75,8 @@ func newPackEditorModel(p *db.Pack) packEditorModel {
 	}
 
 	m := packEditorModel{
-		pack:      p,
 		original:  p.Name,
+		policies:  p.Policies,
 		nameInput: name,
 		descInput: desc,
 		skills:    skillItems,
@@ -90,20 +88,6 @@ func newPackEditorModel(p *db.Pack) packEditorModel {
 	m.descInput.SetValue(p.Description)
 
 	return m
-}
-
-func (m packEditorModel) Init() tea.Cmd {
-	return textinput.Blink
-}
-
-func (m packEditorModel) toggleList() []toggleItem {
-	switch m.section {
-	case sectionSkills:
-		return m.skills
-	case sectionRules:
-		return m.rules
-	}
-	return nil
 }
 
 func (m packEditorModel) save() error {
@@ -134,7 +118,7 @@ func (m packEditorModel) save() error {
 		Description: strings.TrimSpace(m.descInput.Value()),
 		Skills:      skills,
 		Rules:       rules,
-		Policies:    m.pack.Policies, // preserve existing policies
+		Policies:    m.policies,
 	}
 	return db.SavePack(p)
 }
@@ -151,7 +135,8 @@ func (m *packEditorModel) focusSection() tea.Cmd {
 	return nil
 }
 
-func (m packEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// Update returns packEditorModel (not tea.Model) so it can be embedded in the TUI.
+func (m packEditorModel) Update(msg tea.Msg) (packEditorModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -163,22 +148,17 @@ func (m packEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		key := msg.String()
 
-		// Global keys
 		switch key {
-		case "ctrl+c":
-			m.quitting = true
-			return m, tea.Quit
-		case "esc":
-			m.quitting = true
-			return m, tea.Quit
 		case "ctrl+s":
 			if err := m.save(); err != nil {
 				m.err = err.Error()
 				return m, nil
 			}
 			m.saved = true
+			return m, nil
+		case "esc":
 			m.quitting = true
-			return m, tea.Quit
+			return m, nil
 		}
 
 		// Section navigation
@@ -264,14 +244,12 @@ func (m packEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.saved = true
-				m.quitting = true
-				return m, tea.Quit
+				return m, nil
 			}
 			return m, nil
 		}
 	}
 
-	// Update text inputs
 	var cmd tea.Cmd
 	switch m.section {
 	case sectionName:
@@ -283,13 +261,6 @@ func (m packEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m packEditorModel) View() string {
-	if m.quitting && m.saved {
-		return fmt.Sprintf("Saved pack %q\n", m.nameInput.Value())
-	}
-	if m.quitting {
-		return ""
-	}
-
 	var b strings.Builder
 
 	title := "Edit Pack"
@@ -367,7 +338,6 @@ func (m packEditorModel) View() string {
 				line += dimStyle.Render("  " + item.description)
 			}
 			if active && i == cursor {
-				// Only highlight the non-dim part when selected
 				checkAndName := fmt.Sprintf("    %s %s", check, item.name)
 				b.WriteString(selectedLine.Render(checkAndName))
 				if item.description != "" {
@@ -430,9 +400,40 @@ func (m packEditorModel) View() string {
 	return b.String()
 }
 
+// standalonePackEditor wraps packEditorModel as a tea.Model for CLI use.
+type standalonePackEditor struct {
+	inner packEditorModel
+}
+
+func (m standalonePackEditor) Init() tea.Cmd {
+	return textinput.Blink
+}
+
+func (m standalonePackEditor) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if kmsg, ok := msg.(tea.KeyMsg); ok && kmsg.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+	var cmd tea.Cmd
+	m.inner, cmd = m.inner.Update(msg)
+	if m.inner.saved || m.inner.quitting {
+		return m, tea.Quit
+	}
+	return m, cmd
+}
+
+func (m standalonePackEditor) View() string {
+	if m.inner.quitting && m.inner.saved {
+		return fmt.Sprintf("Saved pack %q\n", m.inner.nameInput.Value())
+	}
+	if m.inner.quitting {
+		return ""
+	}
+	return m.inner.View()
+}
+
 // RunPackEditor launches a standalone pack editor TUI for the given pack.
 func RunPackEditor(p *db.Pack) error {
-	m := newPackEditorModel(p)
+	m := standalonePackEditor{inner: newPackEditorModel(p)}
 	prog := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := prog.Run()
 	return err
