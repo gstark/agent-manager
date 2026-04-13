@@ -75,6 +75,13 @@ func installCanonicalSkills(projectDir string, skills []*db.Skill) ([]ItemResult
 // Falls back to copying if symlink creation fails.
 func projectSkills(projectDir string, targetBase string, skills []*db.Skill) error {
 	targetDir := filepath.Join(projectDir, targetBase, "skills")
+	// If targetDir is a symlink (whole-dir symlink from a previous install
+	// strategy), remove it so MkdirAll can create a real directory.
+	if info, err := os.Lstat(targetDir); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if err := os.Remove(targetDir); err != nil {
+			return err
+		}
+	}
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return err
 	}
