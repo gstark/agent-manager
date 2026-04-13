@@ -96,17 +96,17 @@ func resolve(cfg *config.ProjectConfig) (*ArtifactSet, error) {
 		}
 		for _, s := range p.Skills {
 			if err := addSkill(s); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("pack %q: %w", packName, err)
 			}
 		}
 		for _, r := range p.Rules {
 			if err := addRule(r); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("pack %q: %w", packName, err)
 			}
 		}
 		for _, pol := range p.Policies {
 			if err := addPolicy(pol); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("pack %q: %w", packName, err)
 			}
 		}
 	}
@@ -114,17 +114,17 @@ func resolve(cfg *config.ProjectConfig) (*ArtifactSet, error) {
 	// Then explicit skills/rules/policies (dedup against packs)
 	for _, name := range cfg.Skills {
 		if err := addSkill(name); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("skills: %w", err)
 		}
 	}
 	for _, name := range cfg.Rules {
 		if err := addRule(name); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("rules: %w", err)
 		}
 	}
 	for _, name := range cfg.Policies {
 		if err := addPolicy(name); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("policies: %w", err)
 		}
 	}
 
