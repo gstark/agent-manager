@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/adrg/frontmatter"
@@ -120,47 +121,67 @@ func Import(ref *SkillRef) (*db.Skill, error) {
 // fetchExtraFiles lists the skill directory via the GitHub Contents API and
 // fetches all non-SKILL.md files.
 func fetchExtraFiles(ref *SkillRef, dirPath string) (map[string][]byte, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=main",
-		contentsAPIBase, ref.Owner, ref.Repo, dirPath)
-
-	resp, err := httpClient.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
-	}
-
-	var entries []contentsEntry
-	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
-		return nil, err
-	}
-
 	files := make(map[string][]byte)
-	for _, e := range entries {
-		if e.Type != "file" {
-			continue
-		}
-		lower := strings.ToLower(e.Name)
-		if lower == "skill.md" {
-			continue
-		}
-		if e.DownloadURL == "" {
-			continue
-		}
-		data, err := fetchURL(e.DownloadURL)
-		if err != nil {
-			continue // skip files we can't fetch
-		}
-		files[e.Name] = data
+	if err := fetchExtraFilesRecursive(ref, dirPath, "", files); err != nil {
+		return nil, err
 	}
-
 	if len(files) == 0 {
 		return nil, nil
 	}
 	return files, nil
+}
+
+func fetchExtraFilesRecursive(ref *SkillRef, repoDirPath string, relDir string, files map[string][]byte) error {
+	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=main",
+		contentsAPIBase, ref.Owner, ref.Repo, repoDirPath)
+
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+
+	var entries []contentsEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		return err
+	}
+
+	for _, e := range entries {
+		switch e.Type {
+		case "dir":
+			if err := fetchExtraFilesRecursive(
+				ref,
+				path.Join(repoDirPath, e.Name),
+				path.Join(relDir, e.Name),
+				files,
+			); err != nil {
+				return err
+			}
+		case "file":
+			lower := strings.ToLower(e.Name)
+			if lower == "skill.md" {
+				continue
+			}
+			if e.DownloadURL == "" {
+				continue
+			}
+			data, err := fetchURL(e.DownloadURL)
+			if err != nil {
+				continue // skip files we can't fetch
+			}
+			name := e.Name
+			if relDir != "" {
+				name = path.Join(relDir, e.Name)
+			}
+			files[name] = data
+		}
+	}
+
+	return nil
 }
 
 func fetchURL(url string) ([]byte, error) {

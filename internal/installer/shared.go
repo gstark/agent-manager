@@ -2,8 +2,10 @@ package installer
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/gstark/agent-manager/internal/db"
@@ -47,13 +49,16 @@ func installCanonicalSkills(projectDir string, skills []*db.Skill) ([]ItemResult
 		}
 
 		for name, data := range skill.Files {
-			c, writeErr := writeFileIfChanged(filepath.Join(dir, name), data)
+			c, writeErr := writeFileIfChanged(filepath.Join(dir, filepath.FromSlash(name)), data)
 			if writeErr != nil {
 				return nil, writeErr
 			}
 			if c {
 				changed = true
 			}
+		}
+		if err := removeStaleInstalledSkillFiles(dir, skill.Files); err != nil {
+			return nil, err
 		}
 
 		status := StatusUpToDate
@@ -188,9 +193,66 @@ func copyDir(src, dst string) error {
 // writeFileIfChanged writes content to path and returns true if the file was
 // created or its content changed.
 func writeFileIfChanged(path string, content []byte) (changed bool, err error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return false, err
+	}
 	existing, err := os.ReadFile(path)
 	if err == nil && string(existing) == string(content) {
 		return false, nil
 	}
 	return true, os.WriteFile(path, content, 0644)
+}
+
+func removeStaleInstalledSkillFiles(dir string, wantedFiles map[string][]byte) error {
+	wanted := make(map[string]bool, len(wantedFiles))
+	for name := range wantedFiles {
+		wanted[filepath.ToSlash(filepath.Clean(name))] = true
+	}
+
+	var dirs []string
+	if err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+
+		if rel == "." {
+			return nil
+		}
+		if d.IsDir() {
+			dirs = append(dirs, path)
+			return nil
+		}
+		if rel == "SKILL.md" || wanted[rel] {
+			return nil
+		}
+		return os.Remove(path)
+	}); err != nil {
+		return err
+	}
+
+	sort.Slice(dirs, func(i, j int) bool {
+		return len(dirs[i]) > len(dirs[j])
+	})
+	for _, path := range dirs {
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		if len(entries) == 0 {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+	}
+
+	return nil
 }

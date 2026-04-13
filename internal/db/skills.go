@@ -3,8 +3,10 @@ package db
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/adrg/frontmatter"
@@ -37,7 +39,7 @@ func SaveSkill(s *Skill) error {
 
 	// Write extra files
 	for name, data := range s.Files {
-		p := filepath.Join(dir, name)
+		p := filepath.Join(dir, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 			return err
 		}
@@ -46,18 +48,8 @@ func SaveSkill(s *Skill) error {
 		}
 	}
 
-	// Remove stale extra files not in s.Files
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil // non-fatal
-	}
-	for _, e := range entries {
-		if e.Name() == "SKILL.md" {
-			continue
-		}
-		if _, ok := s.Files[e.Name()]; !ok {
-			os.Remove(filepath.Join(dir, e.Name()))
-		}
+	if err := removeStaleSkillFiles(dir, s.Files); err != nil {
+		return err
 	}
 
 	return nil
@@ -77,21 +69,35 @@ func LoadSkill(name string) (*Skill, error) {
 
 	// Load extra files
 	dir := skillDir(name)
-	entries, err := os.ReadDir(dir)
-	if err == nil {
-		for _, e := range entries {
-			if e.IsDir() || e.Name() == "SKILL.md" {
-				continue
-			}
-			content, err := os.ReadFile(filepath.Join(dir, e.Name()))
-			if err != nil {
-				continue
-			}
-			if s.Files == nil {
-				s.Files = make(map[string][]byte)
-			}
-			s.Files[e.Name()] = content
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
+		if d.IsDir() {
+			return nil
+		}
+
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "SKILL.md" {
+			return nil
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		if s.Files == nil {
+			s.Files = make(map[string][]byte)
+		}
+		s.Files[rel] = content
+		return nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
 	}
 
 	return s, nil
@@ -121,4 +127,58 @@ func ListSkills() ([]*Skill, error) {
 
 func DeleteSkill(name string) error {
 	return os.RemoveAll(skillDir(name))
+}
+
+func removeStaleSkillFiles(dir string, wantedFiles map[string][]byte) error {
+	wanted := make(map[string]bool, len(wantedFiles))
+	for name := range wantedFiles {
+		wanted[filepath.ToSlash(filepath.Clean(name))] = true
+	}
+
+	var dirs []string
+	if err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+
+		if rel == "." {
+			return nil
+		}
+		if d.IsDir() {
+			dirs = append(dirs, path)
+			return nil
+		}
+		if rel == "SKILL.md" || wanted[rel] {
+			return nil
+		}
+		return os.Remove(path)
+	}); err != nil {
+		return err
+	}
+
+	sort.Slice(dirs, func(i, j int) bool {
+		return len(dirs[i]) > len(dirs[j])
+	})
+	for _, path := range dirs {
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		if len(entries) == 0 {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+	}
+
+	return nil
 }

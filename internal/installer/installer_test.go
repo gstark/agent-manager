@@ -26,7 +26,9 @@ func setupTestEnv(t *testing.T) (configDir, projectDir string) {
 		Source:      "local",
 		Body:        "# TDD\nWrite tests first.",
 		Files: map[string][]byte{
-			"helper.sh": []byte("#!/bin/bash\necho test"),
+			"helper.sh":            []byte("#!/bin/bash\necho test"),
+			"references/guide.md":  []byte("# Guide\nUse red-green-refactor."),
+			"scripts/bootstrap.sh": []byte("#!/bin/bash\necho bootstrap"),
 		},
 	})
 
@@ -114,6 +116,10 @@ func TestInstall(t *testing.T) {
 	if _, err := os.Stat(canonicalHelper); err != nil {
 		t.Error("canonical skill extra file not created")
 	}
+	canonicalNested := filepath.Join(projectDir, ".agm", "skills", "tdd", "references", "guide.md")
+	if _, err := os.Stat(canonicalNested); err != nil {
+		t.Error("canonical nested skill extra file not created")
+	}
 
 	// Claude skills should be symlinks to canonical
 	claudeSkillDir := filepath.Join(projectDir, ".claude", "skills", "tdd")
@@ -134,6 +140,9 @@ func TestInstall(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(claudeSkillDir, "helper.sh")); err != nil {
 		t.Error("claude skill helper.sh not readable through symlink")
 	}
+	if _, err := os.Stat(filepath.Join(claudeSkillDir, "references", "guide.md")); err != nil {
+		t.Error("claude nested skill file not readable through symlink")
+	}
 
 	// Codex skills should be symlinks to canonical
 	codexSkillDir := filepath.Join(projectDir, ".agents", "skills", "tdd")
@@ -153,6 +162,9 @@ func TestInstall(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(codexSkillDir, "helper.sh")); err != nil {
 		t.Error("codex skill helper.sh not readable through symlink")
+	}
+	if _, err := os.Stat(filepath.Join(codexSkillDir, "references", "guide.md")); err != nil {
+		t.Error("codex nested skill file not readable through symlink")
 	}
 }
 
@@ -187,6 +199,14 @@ func TestInstallCanonicalSkillContent(t *testing.T) {
 	}
 	if string(helper) != "#!/bin/bash\necho test" {
 		t.Errorf("helper content = %q", string(helper))
+	}
+
+	guide, err := os.ReadFile(filepath.Join(projectDir, ".agm", "skills", "tdd", "references", "guide.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(guide) != "# Guide\nUse red-green-refactor." {
+		t.Errorf("guide content = %q", string(guide))
 	}
 }
 
@@ -308,6 +328,40 @@ func TestInstallIdempotent(t *testing.T) {
 	// Prompt instructions SHOULD appear in AGENTS.md
 	if !strings.Contains(string(agentsContent), "Be extremely concise") {
 		t.Error("prompt instruction should appear in AGENTS.md")
+	}
+}
+
+func TestInstallRemovesStaleNestedCanonicalSkillFiles(t *testing.T) {
+	configDir, projectDir := setupTestEnv(t)
+
+	cfg := &config.ProjectConfig{
+		Skills: []string{"tdd"},
+	}
+
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	db.SaveSkill(&db.Skill{
+		Name:        "tdd",
+		Description: "TDD workflow",
+		Source:      "local",
+		Body:        "# TDD\nWrite tests first.",
+		Files: map[string][]byte{
+			"helper.sh": []byte("#!/bin/bash\necho updated"),
+		},
+	})
+	t.Setenv("AGM_CONFIG_DIR", configDir)
+
+	if _, err := Install(projectDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, ".agm", "skills", "tdd", "references", "guide.md")); !os.IsNotExist(err) {
+		t.Error("stale nested canonical skill file should be removed on reinstall")
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".agm", "skills", "tdd", "scripts")); !os.IsNotExist(err) {
+		t.Error("empty nested canonical skill directory should be removed on reinstall")
 	}
 }
 

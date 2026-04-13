@@ -51,6 +51,7 @@ func TestSkillRef_URLs(t *testing.T) {
 func TestImportMultiFile(t *testing.T) {
 	skillMD := "---\nname: tdd\ndescription: TDD workflow\n---\n\n# TDD\n\nWrite tests first.\n"
 	helperSH := "#!/bin/bash\necho hello"
+	nestedGuide := "# Nested guide"
 
 	mux := http.NewServeMux()
 
@@ -63,6 +64,9 @@ func TestImportMultiFile(t *testing.T) {
 	mux.HandleFunc("/raw/helper.sh", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(helperSH))
 	})
+	mux.HandleFunc("/raw/subdir/guide.md", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(nestedGuide))
+	})
 
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
@@ -74,6 +78,12 @@ func TestImportMultiFile(t *testing.T) {
 			{Name: "SKILL.md", Type: "file", DownloadURL: ts.URL + "/owner/repo/main/tdd/SKILL.md"},
 			{Name: "helper.sh", Type: "file", DownloadURL: ts.URL + "/raw/helper.sh"},
 			{Name: "subdir", Type: "dir", DownloadURL: ""},
+		}
+		json.NewEncoder(w).Encode(entries)
+	})
+	contentsMux.HandleFunc("/repos/owner/repo/contents/tdd/subdir", func(w http.ResponseWriter, r *http.Request) {
+		entries := []contentsEntry{
+			{Name: "guide.md", Type: "file", DownloadURL: ts.URL + "/raw/subdir/guide.md"},
 		}
 		json.NewEncoder(w).Encode(entries)
 	})
@@ -105,11 +115,14 @@ func TestImportMultiFile(t *testing.T) {
 	if skill.Body != "# TDD\n\nWrite tests first." {
 		t.Errorf("body: got %q", skill.Body)
 	}
-	if len(skill.Files) != 1 {
-		t.Fatalf("expected 1 extra file, got %d", len(skill.Files))
+	if len(skill.Files) != 2 {
+		t.Fatalf("expected 2 extra files, got %d", len(skill.Files))
 	}
 	if string(skill.Files["helper.sh"]) != helperSH {
 		t.Errorf("helper.sh: got %q", skill.Files["helper.sh"])
+	}
+	if string(skill.Files["subdir/guide.md"]) != nestedGuide {
+		t.Errorf("subdir/guide.md: got %q", skill.Files["subdir/guide.md"])
 	}
 
 	// ContentHash should be set

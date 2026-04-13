@@ -133,6 +133,66 @@ func TestSkillWithExtraFiles(t *testing.T) {
 	}
 }
 
+func TestSkillWithNestedExtraFiles(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("AGM_CONFIG_DIR", tmp)
+	os.MkdirAll(tmp+"/skills", 0755)
+
+	s := &Skill{
+		Name:        "nested",
+		Description: "Nested multi-file skill",
+		Source:      "skills.sh/owner/repo@nested",
+		Body:        "# Nested",
+		Files: map[string][]byte{
+			"references/guide.md":      []byte("# Guide"),
+			"assets/snippets/demo.txt": []byte("demo"),
+			"scripts/install.sh":       []byte("#!/bin/bash\necho install"),
+		},
+	}
+
+	if err := SaveSkill(s); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, want := range s.Files {
+		got, err := os.ReadFile(filepath.Join(tmp, "skills", "nested", filepath.FromSlash(name)))
+		if err != nil {
+			t.Fatalf("nested extra file %q not found: %v", name, err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("file %q: got %q, want %q", name, got, want)
+		}
+	}
+
+	loaded, err := LoadSkill("nested")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Files) != len(s.Files) {
+		t.Fatalf("expected %d nested extra files, got %d", len(s.Files), len(loaded.Files))
+	}
+	if string(loaded.Files["references/guide.md"]) != "# Guide" {
+		t.Errorf("references/guide.md mismatch: %q", loaded.Files["references/guide.md"])
+	}
+	if string(loaded.Files["assets/snippets/demo.txt"]) != "demo" {
+		t.Errorf("assets/snippets/demo.txt mismatch: %q", loaded.Files["assets/snippets/demo.txt"])
+	}
+
+	s.Files = map[string][]byte{
+		"scripts/install.sh": []byte("#!/bin/bash\necho install"),
+	}
+	if err := SaveSkill(s); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(tmp, "skills", "nested", "references", "guide.md")); !os.IsNotExist(err) {
+		t.Error("stale nested file references/guide.md should have been removed")
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "skills", "nested", "assets")); !os.IsNotExist(err) {
+		t.Error("empty nested directory assets should have been removed")
+	}
+}
+
 func TestContentHashRoundTrip(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("AGM_CONFIG_DIR", tmp)
