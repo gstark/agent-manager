@@ -121,19 +121,20 @@ func TestInstall(t *testing.T) {
 		t.Error("canonical nested skill extra file not created")
 	}
 
-	// Claude skills should be symlinks to canonical
-	claudeSkillDir := filepath.Join(projectDir, ".claude", "skills", "tdd")
-	target, err := os.Readlink(claudeSkillDir)
+	// .claude/skills should be a whole-dir symlink to ../.agm/skills
+	claudeSkillsDir := filepath.Join(projectDir, ".claude", "skills")
+	claudeTarget, err := os.Readlink(claudeSkillsDir)
 	if err != nil {
-		t.Error("claude skill dir is not a symlink")
+		t.Error(".claude/skills is not a symlink")
 	} else {
-		expected := filepath.Join("..", "..", ".agm", "skills", "tdd")
-		if target != expected {
-			t.Errorf("claude skill symlink points to %q, want %q", target, expected)
+		expected := filepath.Join("..", ".agm", "skills")
+		if claudeTarget != expected {
+			t.Errorf(".claude/skills symlink points to %q, want %q", claudeTarget, expected)
 		}
 	}
 
-	// Claude skill content should be readable through symlink
+	// Claude skill content should be readable through the whole-dir symlink
+	claudeSkillDir := filepath.Join(claudeSkillsDir, "tdd")
 	if _, err := os.Stat(filepath.Join(claudeSkillDir, "SKILL.md")); err != nil {
 		t.Error("claude skill SKILL.md not readable through symlink")
 	}
@@ -144,19 +145,20 @@ func TestInstall(t *testing.T) {
 		t.Error("claude nested skill file not readable through symlink")
 	}
 
-	// Codex skills should be symlinks to canonical
-	codexSkillDir := filepath.Join(projectDir, ".agents", "skills", "tdd")
-	codexTarget, codexErr := os.Readlink(codexSkillDir)
+	// .agents/skills should be a whole-dir symlink to ../.agm/skills
+	codexSkillsDir := filepath.Join(projectDir, ".agents", "skills")
+	codexTarget, codexErr := os.Readlink(codexSkillsDir)
 	if codexErr != nil {
-		t.Error("codex skill dir is not a symlink")
+		t.Error(".agents/skills is not a symlink")
 	} else {
-		expected := filepath.Join("..", "..", ".agm", "skills", "tdd")
+		expected := filepath.Join("..", ".agm", "skills")
 		if codexTarget != expected {
-			t.Errorf("codex skill symlink points to %q, want %q", codexTarget, expected)
+			t.Errorf(".agents/skills symlink points to %q, want %q", codexTarget, expected)
 		}
 	}
 
-	// Codex skill content should be readable through symlink
+	// Codex skill content should be readable through the whole-dir symlink
+	codexSkillDir := filepath.Join(codexSkillsDir, "tdd")
 	if _, err := os.Stat(filepath.Join(codexSkillDir, "SKILL.md")); err != nil {
 		t.Error("codex skill SKILL.md not readable through symlink")
 	}
@@ -260,20 +262,20 @@ func TestInstallSymlinkCopyFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Replace a symlink with a regular directory to simulate broken symlink env
-	claudeSkillDir := filepath.Join(projectDir, ".claude", "skills", "tdd")
-	os.Remove(claudeSkillDir) // remove the symlink
-	os.MkdirAll(claudeSkillDir, 0755)
-	os.WriteFile(filepath.Join(claudeSkillDir, "stale.txt"), []byte("stale"), 0644)
+	// Replace the whole-dir symlink with a real directory to simulate a stale state
+	claudeSkillsDir := filepath.Join(projectDir, ".claude", "skills")
+	os.Remove(claudeSkillsDir) // remove the symlink
+	os.MkdirAll(claudeSkillsDir, 0755)
+	os.WriteFile(filepath.Join(claudeSkillsDir, "stale.txt"), []byte("stale"), 0644)
 
-	// Re-install should fix it (back to symlink since symlinks work here)
+	// Re-install should restore the whole-dir symlink
 	if _, err := Install(projectDir, cfg); err != nil {
 		t.Fatal(err)
 	}
 
-	// Should be a symlink again
-	if _, err := os.Readlink(claudeSkillDir); err != nil {
-		t.Error("claude skill dir should be a symlink after re-install")
+	// .claude/skills should be a symlink again
+	if _, err := os.Readlink(claudeSkillsDir); err != nil {
+		t.Error(".claude/skills should be a symlink after re-install")
 	}
 }
 

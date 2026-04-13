@@ -71,48 +71,31 @@ func installCanonicalSkills(projectDir string, skills []*db.Skill) ([]ItemResult
 	return results, nil
 }
 
-// projectSkills creates symlinks from targetBase/skills/<name> -> .agm/skills/<name>.
-// Falls back to copying if symlink creation fails.
+// projectSkills creates a single symlink from targetBase/skills -> .agm/skills.
+// Falls back to copying the whole directory if symlink creation fails.
 func projectSkills(projectDir string, targetBase string, skills []*db.Skill) error {
-	targetDir := filepath.Join(projectDir, targetBase, "skills")
-	// If targetDir is a symlink (whole-dir symlink from a previous install
-	// strategy), remove it so MkdirAll can create a real directory.
-	if info, err := os.Lstat(targetDir); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(targetDir); err != nil {
-			return err
-		}
-	}
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	linkPath := filepath.Join(projectDir, targetBase, "skills")
+	// Relative path from targetBase/ to .agm/skills/
+	// e.g. from .claude/ -> ../.agm/skills
+	relTarget := filepath.Join("..", ".agm", "skills")
+
+	// Ensure the parent directory (e.g. .claude/ or .agents/) exists.
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0755); err != nil {
 		return err
 	}
 
-	wantedSkills := make(map[string]bool, len(skills))
-	for _, skill := range skills {
-		wantedSkills[skill.Name] = true
-	}
-	if err := removeStaleDirs(targetDir, wantedSkills); err != nil {
+	// Remove whatever exists there (file, real dir, or old symlink)
+	if err := os.RemoveAll(linkPath); err != nil {
 		return err
 	}
 
-	for _, skill := range skills {
-		linkPath := filepath.Join(targetDir, skill.Name)
-		// Relative path from targetDir to canonical dir
-		// e.g. from .claude/skills/tdd -> ../../.agm/skills/tdd
-		relTarget := filepath.Join("..", "..", ".agm", "skills", skill.Name)
-
-		// Remove existing entry (file, dir, or symlink)
-		if err := os.RemoveAll(linkPath); err != nil {
-			return err
-		}
-
-		if err := os.Symlink(relTarget, linkPath); err != nil {
-			// Fallback: copy the canonical directory
-			if copyErr := copyDir(
-				filepath.Join(projectDir, ".agm", "skills", skill.Name),
-				linkPath,
-			); copyErr != nil {
-				return fmt.Errorf("symlink failed (%w) and copy fallback failed: %w", err, copyErr)
-			}
+	if err := os.Symlink(relTarget, linkPath); err != nil {
+		// Fallback: copy the entire canonical skills directory
+		if copyErr := copyDir(
+			filepath.Join(projectDir, ".agm", "skills"),
+			linkPath,
+		); copyErr != nil {
+			return fmt.Errorf("symlink failed (%w) and copy fallback failed: %w", err, copyErr)
 		}
 	}
 
